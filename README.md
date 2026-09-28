@@ -82,3 +82,34 @@ Aimed at: Noeon Research, PayPay Card, Money Forward, Treasure AI, Citadel AI (T
 ## License
 
 MIT
+
+## Article
+
+Read the full story: [FlipGate: Building a Statistical Release Gate for Quantised LLMs](./devto_article.md)
+
+The article covers:
+- Why accuracy isn't enough for evaluating quantised models
+- How FlipGate measures noise floors and detects per-item flips
+- Results from evaluating Qwen2.5-3B (bf16 vs AWQ vs GPTQ-Int4)
+- Challenges we hit (vLLM CUDA issues, statistical power limits)
+- Why this matters for LLMOps teams
+
+## Results Summary
+
+| Model | Accuracy | Right→Wrong | Wrong→Right | McNemar p |
+|-------|----------|-------------|-------------|-----------|
+| bf16 (baseline) | 30.9% | — | — | — |
+| AWQ (4-bit) | 26.7% | 1 | 2 | 1.0000 |
+| GPTQ-Int4 | 33.3% | 0 | 1 | 1.0000 |
+
+**Finding**: No statistically significant regressions detected (p = 1.0).
+
+**Limitation**: 30 items isn't enough statistical power. Production use requires 200-500+ items.
+
+## Dataset
+
+All evaluation results are published: https://huggingface.co/datasets/raihan-js/flipgate-results
+
+- 21 evaluation runs
+- 530 items evaluated
+- Per-item prompts, responses, and scores
