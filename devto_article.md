@@ -106,19 +106,33 @@ LLM judges are slow, expensive, and non-deterministic. Rule-based scorers are fa
 
 We evaluated **Qwen2.5-3B-Instruct** in three configurations on **GSM8K** (math reasoning):
 
+### Large-Scale Evaluation (200 items)
+
+| Model | Accuracy | Items | Time |
+|-------|----------|-------|------|
+| bf16 (baseline) | 34.0% | 200 | 25 min |
+
+The bf16 model achieved 34% accuracy on 200 GSM8K items, demonstrating stable performance at scale.
+
+### Quantization Comparison (30 items)
+
+Due to CUDA kernel compilation issues with quantized models (Marlin kernels incompatible with torch 2.13.0), we were only able to evaluate 30 items across all three models:
+
 | Model | Accuracy | Right→Wrong Flips | Wrong→Right Flips | McNemar p-value |
 |-------|----------|-------------------|-------------------|-----------------|
-| bf16 (baseline) | 30.9% | — | — | — |
-| AWQ (4-bit) | 26.7% | 1 | 2 | 1.0000 |
+| bf16 (baseline) | 30.0% | — | — | — |
+| AWQ (4-bit) | 26.7% | 3 | 2 | 1.0000 |
 | GPTQ-Int4 | 33.3% | 0 | 1 | 1.0000 |
 
 **Key finding**: No statistically significant regressions detected (p = 1.0 for both comparisons).
 
 ### What This Means
 
-With 24-30 overlapping items, we lack statistical power to detect small differences. But the flip rates are low (0-4%), suggesting that for this model and task, quantisation doesn't cause meaningful per-item regressions.
+With 30 items, we lack statistical power to detect small differences. But the flip rates are low (0-10%), suggesting that for this model and task, quantisation doesn't cause meaningful per-item regressions.
 
 This is actually a **valid and publishable result**: sometimes the answer is "no significant difference," and that's useful information for teams deciding whether to ship a quantised model.
+
+The 200-item bf16 evaluation demonstrates the framework's ability to handle larger datasets efficiently, completing in 25 minutes on a single RTX 3060.
 
 ---
 
@@ -208,8 +222,10 @@ flipgate check \
 
 ## Limitations
 
-- **Small sample size**: 30 items isn't enough for high-confidence decisions. Production use requires 200-500+ items.
+- **Small sample size for quantized models**: 30 items isn't enough for high-confidence decisions. Production use requires 200-500+ items. We successfully ran 200 items on bf16, but quantized models hit CUDA kernel compilation issues.
+- **CUDA compatibility issues**: vLLM's flashinfer and gptqmodel's Marlin kernels failed to compile with CUDA 13.0 / torch 2.13.0 due to C++17 compatibility issues (`data member initializer is not allowed` in AutogradState.h). This prevented us from running large-scale evaluations on quantized models.
 - **Single task family**: We only tested GSM8K. Different tasks (summarisation, code generation, function calling) may behave differently.
+- **Single model**: Qwen2.5-3B is one model. Results may not generalise to other architectures.
 - **HF generate only**: We couldn't test vLLM due to CUDA issues. Batched kernels may show different noise floors.
 - **Single model**: Qwen2.5-3B is one model. Results may not generalise to other architectures.
 

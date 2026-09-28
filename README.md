@@ -96,15 +96,25 @@ The article covers:
 
 ## Results Summary
 
+### Large-Scale Evaluation (200 items)
+
+| Model | Accuracy | Items | Time |
+|-------|----------|-------|------|
+| bf16 (baseline) | 34.0% | 200 | 25 min |
+
+### Quantization Comparison (30 items)
+
 | Model | Accuracy | Right→Wrong | Wrong→Right | McNemar p |
 |-------|----------|-------------|-------------|-----------|
-| bf16 (baseline) | 30.9% | — | — | — |
-| AWQ (4-bit) | 26.7% | 1 | 2 | 1.0000 |
+| bf16 (baseline) | 30.0% | — | — | — |
+| AWQ (4-bit) | 26.7% | 3 | 2 | 1.0000 |
 | GPTQ-Int4 | 33.3% | 0 | 1 | 1.0000 |
 
 **Finding**: No statistically significant regressions detected (p = 1.0).
 
 **Limitation**: 30 items isn't enough statistical power. Production use requires 200-500+ items.
+
+**Known Issue**: Quantized models (AWQ, GPTQ) failed to run at scale due to Marlin kernel compilation issues with torch 2.13.0 / CUDA 13.0.
 
 ## Dataset
 
