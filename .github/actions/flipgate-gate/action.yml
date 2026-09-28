@@ -1,0 +1,98 @@
+name: FlipGate
+description: "Release gate for quantised/re-served LLMs"
+
+inputs:
+  baseline_run_id:
+    description: "Baseline evaluation run ID"
+    required: true
+  candidate_run_id:
+    description: "Candidate evaluation run ID"
+    required: true
+  dataset:
+    description: "Dataset to evaluate on"
+    required: true
+    default: "gsm8k"
+  alpha:
+    description: "Significance level for McNemar's test"
+    required: false
+    default: "0.05"
+  margin:
+    description: "Floor margin multiplier"
+    required: false
+    default: "1.0"
+  results_dir:
+    description: "Directory containing evaluation results"
+    required: false
+    default: "data/results"
+  python_version:
+    description: "Python version to use"
+    required: false
+    default: "3.12"
+
+outputs:
+  verdict:
+    description: "PASS, FAIL, or WARN"
+    value: ${{ steps.check.outputs.verdict }}
+  flip_rate:
+    description: "Right-to-wrong flip rate"
+    value: ${{ steps.check.outputs.flip_rate }}
+  p_value:
+    description: "McNemar's test p-value"
+    value: ${{ steps.check.outputs.p_value }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python_version }}
+    
+    - name: Install FlipGate
+      shell: bash
+      run: |
+        pip install pyyaml click rich scipy statsmodels numpy
+    
+    - name: Run gate check
+      id: check
+      shell: bash
+      run: |
+        cd ${{ github.workspace }}
+        PYTHONPATH=src python -m flipgate.cli check \
+          --baseline ${{ inputs.baseline_run_id }} \
+          --candidate ${{ inputs.candidate_run_id }} \
+          --dataset ${{ inputs.dataset }} \
+          --results-dir ${{ inputs.results_dir }} \
+          --alpha ${{ inputs.alpha }} \
+          --margin ${{ inputs.margin }} \
+          2>&1 | tee gate_output.txt
+        
+        # Parse output for GitHub step summary
+        if grep -q "PASS" gate_output.txt; then
+          echo "verdict=PASS" >> $GITHUB_OUTPUT
+        elif grep -q "FAIL" gate_output.txt; then
+          echo "verdict=FAIL" >> $GITHUB_OUTPUT
+        else
+          echo "verdict=WARN" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Write step summary
+      if: always()
+      shell: bash
+      run: |
+        echo "## FlipGate Results" >> $GITHUB_STEP_SUMMARY
+        echo "- **Baseline:** ${{ inputs.baseline_run_id }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Candidate:** ${{ inputs.candidate_run_id }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Dataset:** ${{ inputs.dataset }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Verdict:** ${{ steps.check.outputs.verdict }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        cat gate_output.txt >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+    
+    - name: Fail if gate rejected
+      if: steps.check.outputs.verdict == 'FAIL'
+      shell: bash
+      run: |
+        echo "FlipGate rejected the candidate."
+        exit 1

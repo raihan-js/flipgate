@@ -1,0 +1,131 @@
+# FlipGate Frozen Eval Manifest
+# All versions, revisions, and parameters are pinned for reproducibility.
+# Any change requires a new manifest version and re-running affected evals.
+
+manifest_version: "1.0.0"
+created: "2026-09-28"
+git_sha: null  # filled at runtime
+
+# ============================================================================
+# MODELS
+# ============================================================================
+models:
+  base:
+    id: "Qwen/Qwen2.5-3B-Instruct"
+    dtype: "bfloat16"
+    revision: "main"
+    chat_template: "qwen2.5"
+    
+  awq:
+    id: "Qwen/Qwen2.5-3B-Instruct-AWQ"
+    dtype: "float16"
+    revision: "main"
+    quantization: "awq"
+    
+  gptq_int4:
+    id: "Qwen/Qwen2.5-3B-Instruct-GPTQ-Int4"
+    dtype: "float16"
+    revision: "main"
+    quantization: "gptq"
+    
+  gguf_f16:
+    id: "Qwen/Qwen2.5-3B-Instruct"
+    format: "gguf"
+    quantization: "f16"
+    engine: "llama.cpp"
+    
+  gguf_q4:
+    id: "Qwen/Qwen2.5-3B-Instruct-GGUF"
+    format: "gguf"
+    quantization: "q4_K_M"
+    engine: "llama.cpp"
+
+# ============================================================================
+# SAMPLING PARAMETERS (greedy decoding)
+# ============================================================================
+sampling:
+  temperature: 0.0
+  top_p: 1.0
+  top_k: -1
+  max_tokens: 2048
+  repetition_penalty: 1.0
+  seed: null  # seeds don't matter at temp 0; nondeterminism comes from kernels
+
+# ============================================================================
+# ENGINE CONFIGURATIONS
+# ============================================================================
+engines:
+  vllm:
+    version: "0.2.7"
+    dtype: "auto"
+    gpu_memory_utilization: 0.90
+    max_model_len: 4096
+    enforce_eager: false
+    batch_sizes: [1, 8, 32]
+    batch_invariant_ops: false  # may not work on Ampere/pinned vLLM
+    
+  hf_generate:
+    version: "4.36.0"
+    device: "cuda"
+    batch_size: 1
+    
+  llama_cpp:
+    version: "0.2.0"
+    n_ctx: 4096
+    n_batch: 512
+    n_gpu_layers: -1
+    n_threads: 6
+
+# ============================================================================
+# EVALUATION DATASETS
+# ============================================================================
+datasets:
+  ifeval:
+    source: "google/IFEval"
+    revision: "main"
+    split: "train"
+    num_items: 541
+    scorer: "ifeval"
+    description: "Instruction following, rule-based checks"
+    
+  gsm8k:
+    source: "openai/gsm8k"
+    subset: "main"
+    revision: "main"
+    split: "test"
+    num_items: 1000  # fixed slice
+    scorer: "gsm8k"
+    description: "Math reasoning, exact numeric match"
+    
+  fedproc:
+    source: "raihan-js/fedproc-bench"
+    subset: "real-far"
+    revision: "main"
+    split: "test"
+    num_items: 155
+    scorer: "fedproc_registry"
+    description: "FAR/DFARS clause registry hallucination check"
+
+# ============================================================================
+# NOISE FLOOR CONFIGURATION
+# ============================================================================
+noise_floor:
+  baseline_model: "base"
+  engine: "vllm"
+  batch_sizes: [1, 8, 32]
+  num_runs: 3
+  batch_invariant_ops: [false]  # add true if it works on this hardware
+  confidence_level: 0.95
+  bootstrap_samples: 1000
+
+# ============================================================================
+# GATE THRESHOLDS
+# ============================================================================
+gate:
+  significance_level: 0.05
+  min_detectable_effect:
+    - 1  # percentage points
+    - 2
+    - 5
+  max_flip_ratio_vs_floor: 2.0
+  fail_on_hallucination_increase: true
