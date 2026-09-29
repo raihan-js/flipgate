@@ -98,18 +98,22 @@ The article covers:
 
 ### Large-Scale Evaluation (200 items)
 
-| Model | Accuracy | Items |
-|-------|----------|-------|
-| bf16 (baseline) | 34.0% (68/200) | 200 |
-| AWQ (4-bit) | 45.0% (90/200) | 200 |
-| GPTQ-Int4 | 39.0% (78/200) | 200 |
+| Model | Accuracy | Δ vs bf16 | Items |
+|-------|----------|-----------|-------|
+| bf16 (HF, baseline) | 34.0% (68/200) | — | 200 |
+| AWQ (4-bit, HF) | 45.0% (90/200) | **+11.0 pts** | 200 |
+| GPTQ-Int4 (HF) | 39.0% (78/200) | **+5.0 pts** | 200 |
+| f16 (llama.cpp) | 31.0% (62/200) | **−3.0 pts** | 200 |
+| q4_K_M (llama.cpp) | 36.5% (73/200) | **+2.5 pts** | 200 |
 
 **Flip analysis (200 common items):**
 
 | Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
 |------------|-------------|-------------|----------|--------|-----------|
-| bf16 vs AWQ | 13 | 35 | 6.5% | [3.0%, 10.0%] | 0.0024 |
+| bf16 vs AWQ | 13 | 35 | 6.5% | [3.0%, 10.0%] | **0.0024** |
 | bf16 vs GPTQ-Int4 | 14 | 24 | 7.0% | [4.0%, 11.0%] | 0.1443 |
+| bf16 vs f16 (llama.cpp) | 24 | 18 | 12.0% | [8.0%, 16.5%] | 0.4404 |
+| bf16 vs q4_K_M (llama.cpp) | 21 | 26 | 10.5% | [6.5%, 15.0%] | 0.5596 |
 
 ### Engine vs Quantization Control (llama.cpp f16 row, 200 items)
 
