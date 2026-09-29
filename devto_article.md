@@ -142,6 +142,18 @@ GSM8K showed accuracy going up. IFEval — 541 rule-checked instruction-followin
 
 Here the aggregate *does* move — AWQ loses nearly 3 points — but the flip counts tell the fuller story: 56 and 45 previously-passing instructions broke. The two task families together make the case no single number can: on math reasoning the quantized models looked *better* while breaking answers; on instruction following they look *worse*, and the flips quantify exactly how much worse per item.
 
+### FedProc: Hallucination Rises (155 real-FAR records)
+
+The third column needs no accuracy at all — just a registry. We prompt each model with a clause topic and check every cited FAR/DFARS number against the 1,128-entry registry built from ECFR Title 48. Score 1.0 means no fabricated numbers; 0.0 means at least one hallucinated clause. Only the real-FAR slice is used; the 65 Claude-written synthetic records stay out.
+
+| Model | No-hallucination rate | Δ vs bf16 | New hallucinations | Fixed | McNemar p |
+|-------|----------------------|-----------|-------------------|-------|-----------|
+| bf16 (baseline) | 81.9% (127/155) | — | — | — | — |
+| AWQ (4-bit) | 67.1% (104/155) | **−14.8 pts** | 34 | 11 | **0.0010** |
+| GPTQ-Int4 | 74.2% (115/155) | **−7.7 pts** | 20 | 8 | **0.0376** |
+
+Both increases are statistically significant. This is the gate's second tripwire firing exactly as designed: `fail when registry hallucination rises`. Quantization doesn't just flip answers — it fabricates clause numbers, and the registry check catches it with no LLM judge involved.
+
 ### Minimum Detectable Effect
 
 How many items do you need to catch a regression? For paired binary outcomes (McNemar, 80% power, α = 0.05, baseline accuracy 34%):

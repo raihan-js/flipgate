@@ -124,6 +124,14 @@ The article covers:
 | bf16 vs AWQ | 56 | 41 | 10.4% | [7.8%, 12.9%] | 0.155 |
 | bf16 vs GPTQ-Int4 | 45 | 40 | 8.3% | [6.1%, 10.5%] | 0.664 |
 
+### FedProc Hallucination (155 real-FAR records, registry-checked)
+
+| Model | No-hallucination rate | Δ vs bf16 | New hallucinations | McNemar p |
+|-------|----------------------|-----------|-------------------|-----------|
+| bf16 (baseline) | 81.9% (127/155) | — | — | — |
+| AWQ (4-bit) | 67.1% (104/155) | −14.8 pts | 34 | 0.0010 |
+| GPTQ-Int4 | 74.2% (115/155) | −7.7 pts | 20 | 0.0376 |
+
 ### Quantization Comparison (30 items)
 
 | Model | Accuracy | Right→Wrong | Wrong→Right | McNemar p |
@@ -137,6 +145,24 @@ The article covers:
 **Limitation**: 30 items isn't enough statistical power. Production use requires 200-500+ items.
 
 **Known Issue**: Quantized models (AWQ, GPTQ) failed to run at scale due to Marlin kernel compilation issues with torch 2.13.0 / CUDA 13.0.
+
+## Gate Demo: Catching a Broken Candidate
+
+A serving config change truncated generation to 32 tokens, cutting off chain-of-thought reasoning:
+
+```
+$ flipgate check --baseline <bf16-run> --candidate <truncated-run> --dataset gsm8k
+
+| Baseline accuracy       | 33.3%            |
+| Candidate accuracy      | 0.0%             |
+| Right-to-wrong flips    | 10               |
+| Wrong-to-right flips    | 0                |
+| McNemar p-value         | 0.0044           |
+
+FAIL: significant right-to-wrong flip asymmetry
+```
+
+The gate fails the candidate and writes a Markdown report listing all 10 flipped items. Try it: `PYTHONPATH=src python -m flipgate.cli check --help`.
 
 ## Dataset
 
