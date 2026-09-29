@@ -110,9 +110,16 @@ We evaluated **Qwen2.5-3B-Instruct** in three configurations on **GSM8K** (math 
 
 | Model | Accuracy | Items | Time |
 |-------|----------|-------|------|
-| bf16 (baseline) | 34.0% | 200 | 25 min |
+| bf16 (baseline) | 34.0% (68/200) | 200 | ~24 min |
+| GPTQ-Int4 | 39.0% (78/200) | 200 | ~33 min |
 
-The bf16 model achieved 34% accuracy on 200 GSM8K items, demonstrating stable performance at scale.
+**This is the FlipGate story in one table.** GPTQ accuracy went *up* 5 points — yet **14 items flipped right-to-wrong** (7.0% flip rate, 95% CI [4.0%, 11.0%]). Aggregate accuracy hid real per-item regressions.
+
+| Comparison | Right→Wrong | Wrong→Right | Total flips | McNemar p |
+|------------|-------------|-------------|-------------|-----------|
+| bf16 vs GPTQ-Int4 | 14 | 24 | 38 (19% of items) | 0.144 |
+
+The McNemar p-value (0.144) is not significant at p < 0.05 — with 200 items we still lack power for a 7% flip rate against 24 compensating improvements. But 19% of all items changed answers, and 14 previously-correct answers broke. A team shipping on accuracy alone would never see this.
 
 ### Quantization Comparison (30 items)
 

@@ -100,7 +100,10 @@ The article covers:
 
 | Model | Accuracy | Items | Time |
 |-------|----------|-------|------|
-| bf16 (baseline) | 34.0% | 200 | 25 min |
+| bf16 (baseline) | 34.0% | 200 | ~24 min |
+| GPTQ-Int4 | 39.0% | 200 | ~33 min |
+
+**Flip analysis (bf16 vs GPTQ-Int4, 200 items):** 14 right-to-wrong (7.0%, 95% CI [4.0%, 11.0%]), 24 wrong-to-right, 38 total flips. McNemar p = 0.144.
 
 ### Quantization Comparison (30 items)
 
