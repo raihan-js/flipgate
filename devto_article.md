@@ -123,7 +123,21 @@ We evaluated **Qwen2.5-3B-Instruct** in three configurations on **GSM8K** (math 
 
 AWQ's difference is statistically significant (p = 0.0024) — in the direction of *improvement* (35 fixes vs 13 breaks). GPTQ's is not significant (p = 0.144). But in both cases, aggregate accuracy hid real per-item regressions: 13–14 correct answers broke silently. A team shipping on accuracy alone would never see this.
 
+### Engine vs Quantization: The Control Row That Earned Its Place
+
+GGUF runs on llama.cpp, not on HF generate — so engine and quantization are confounded in a naive comparison. The spec requires a llama.cpp f16 control row precisely for this, and the data vindicates it:
+
+| Comparison | What it isolates | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
+|------------|-----------------|-------------|-------------|----------|--------|-----------|
+| bf16 (HF) vs f16 (llama.cpp) | **engine only** | 24 | 18 | 12.0% | [8.0%, 16.5%] | 0.440 |
+| f16 vs q4_K_M (same engine) | **quantization only** | 14 | 25 | 7.0% | [3.5%, 10.5%] | 0.109 |
+| bf16 (HF) vs q4_K_M | confounded total | 21 | 26 | 10.5% | [6.5%, 15.0%] | 0.560 |
+
+Just swapping the inference engine — same weights, same precision — flipped 42 of 200 items (21%). The engine effect (12.0%) is *larger* than the pure quantization effect (7.0%). Without the f16 control, we would have blamed quantization for flips the engine caused. Neither difference is statistically significant at p < 0.05, but the decomposition itself is the point: measure the control, or your attribution is guesswork.
+
 Against our measured noise floor of 0% (bf16-vs-bf16, HF generate, temp 0, batch 1/8), every one of these flips exceeds the floor.
+
+> **A note on the floor:** the original design expressed flips as a *multiple* of the noise floor (e.g. "4x the floor"). With a measured floor of exactly 0%, that ratio is undefined — so we report flips as an absolute rate above the floor with its 95% CI instead. The gate logic is unchanged: any flip rate above floor + margin trips it.
 
 ### IFEval: Instruction Following Degrades (541 prompts)
 

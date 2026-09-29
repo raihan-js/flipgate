@@ -111,7 +111,15 @@ The article covers:
 | bf16 vs AWQ | 13 | 35 | 6.5% | [3.0%, 10.0%] | 0.0024 |
 | bf16 vs GPTQ-Int4 | 14 | 24 | 7.0% | [4.0%, 11.0%] | 0.1443 |
 
-### IFEval (541 prompts, rule-checked)
+### Engine vs Quantization Control (llama.cpp f16 row, 200 items)
+
+| Comparison | Isolates | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
+|------------|----------|-------------|-------------|----------|--------|-----------|
+| bf16 (HF) vs f16 (llama.cpp) | engine only | 24 | 18 | 12.0% | [8.0%, 16.5%] | 0.440 |
+| f16 vs q4_K_M (same engine) | quantization only | 14 | 25 | 7.0% | [3.5%, 10.5%] | 0.109 |
+| bf16 (HF) vs q4_K_M (GGUF) | confounded total | 21 | 26 | 10.5% | [6.5%, 15.0%] | 0.560 |
+
+### IFEval (541 prompts, rule-checked, independent reimplementation of the 25 published rules)
 
 | Model | Accuracy | Δ vs bf16 |
 |-------|----------|-----------|
