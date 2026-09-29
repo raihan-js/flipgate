@@ -108,18 +108,34 @@ We evaluated **Qwen2.5-3B-Instruct** in three configurations on **GSM8K** (math 
 
 ### Large-Scale Evaluation (200 items)
 
-| Model | Accuracy | Items | Time |
-|-------|----------|-------|------|
-| bf16 (baseline) | 34.0% (68/200) | 200 | ~24 min |
-| GPTQ-Int4 | 39.0% (78/200) | 200 | ~33 min |
+| Model | Accuracy | Items |
+|-------|----------|-------|
+| bf16 (baseline) | 34.0% (68/200) | 200 |
+| AWQ (4-bit) | 45.0% (90/200) | 200 |
+| GPTQ-Int4 | 39.0% (78/200) | 200 |
 
-**This is the FlipGate story in one table.** GPTQ accuracy went *up* 5 points — yet **14 items flipped right-to-wrong** (7.0% flip rate, 95% CI [4.0%, 11.0%]). Aggregate accuracy hid real per-item regressions.
+**This is the FlipGate story in one table.** Both quantized models *improved* accuracy — AWQ by 11 points, GPTQ by 5 — yet both broke previously-correct answers:
 
-| Comparison | Right→Wrong | Wrong→Right | Total flips | McNemar p |
-|------------|-------------|-------------|-------------|-----------|
-| bf16 vs GPTQ-Int4 | 14 | 24 | 38 (19% of items) | 0.144 |
+| Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
+|------------|-------------|-------------|----------|--------|-----------|
+| bf16 vs AWQ | 13 | 35 | 6.5% | [3.0%, 10.0%] | 0.0024 |
+| bf16 vs GPTQ-Int4 | 14 | 24 | 7.0% | [4.0%, 11.0%] | 0.1443 |
 
-The McNemar p-value (0.144) is not significant at p < 0.05 — with 200 items we still lack power for a 7% flip rate against 24 compensating improvements. But 19% of all items changed answers, and 14 previously-correct answers broke. A team shipping on accuracy alone would never see this.
+AWQ's difference is statistically significant (p = 0.0024) — in the direction of *improvement* (35 fixes vs 13 breaks). GPTQ's is not significant (p = 0.144). But in both cases, aggregate accuracy hid real per-item regressions: 13–14 correct answers broke silently. A team shipping on accuracy alone would never see this.
+
+Against our measured noise floor of 0% (bf16-vs-bf16, HF generate, temp 0, batch 1/8), every one of these flips exceeds the floor.
+
+### Minimum Detectable Effect
+
+How many items do you need to catch a regression? For paired binary outcomes (McNemar, 80% power, α = 0.05, baseline accuracy 34%):
+
+| Accuracy drop | Items needed |
+|---------------|--------------|
+| 1 pt | ~3,900 |
+| 2 pt | ~1,175 |
+| 5 pt | ~280 |
+
+Our 200 items can reliably detect ~5-point drops. Detecting a 1-point drop needs thousands of items — which is exactly why per-item flip tracking matters more than waiting for aggregate accuracy to move.
 
 ### Quantization Comparison (30 items)
 

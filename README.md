@@ -98,12 +98,18 @@ The article covers:
 
 ### Large-Scale Evaluation (200 items)
 
-| Model | Accuracy | Items | Time |
-|-------|----------|-------|------|
-| bf16 (baseline) | 34.0% | 200 | ~24 min |
-| GPTQ-Int4 | 39.0% | 200 | ~33 min |
+| Model | Accuracy | Items |
+|-------|----------|-------|
+| bf16 (baseline) | 34.0% (68/200) | 200 |
+| AWQ (4-bit) | 45.0% (90/200) | 200 |
+| GPTQ-Int4 | 39.0% (78/200) | 200 |
 
-**Flip analysis (bf16 vs GPTQ-Int4, 200 items):** 14 right-to-wrong (7.0%, 95% CI [4.0%, 11.0%]), 24 wrong-to-right, 38 total flips. McNemar p = 0.144.
+**Flip analysis (200 common items):**
+
+| Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
+|------------|-------------|-------------|----------|--------|-----------|
+| bf16 vs AWQ | 13 | 35 | 6.5% | [3.0%, 10.0%] | 0.0024 |
+| bf16 vs GPTQ-Int4 | 14 | 24 | 7.0% | [4.0%, 11.0%] | 0.1443 |
 
 ### Quantization Comparison (30 items)
 

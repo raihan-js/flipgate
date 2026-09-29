@@ -241,6 +241,17 @@ def _write_report(path, baseline, candidate, dataset, common_ids,
                   baseline_acc, candidate_acc, flips, bootstrap, mcnemar,
                   noise_floor, floor_comparison, verdict, failures):
     """Write a Markdown report of the gate check."""
+    from .store import ResultsStore
+    store = ResultsStore("data/results")
+
+    # Find exact flipped items
+    baseline_items = {it["item_id"]: it for it in store.iter_items(baseline, dataset)}
+    candidate_items = {it["item_id"]: it for it in store.iter_items(candidate, dataset)}
+    r2w_ids = [iid for iid in common_ids
+               if baseline_items[iid]["score"] == 1.0 and candidate_items[iid]["score"] != 1.0]
+    w2r_ids = [iid for iid in common_ids
+               if baseline_items[iid]["score"] != 1.0 and candidate_items[iid]["score"] == 1.0]
+
     lines = [
         f"# FlipGate Report: {verdict}",
         "",
@@ -287,7 +298,18 @@ def _write_report(path, baseline, candidate, dataset, common_ids,
             "## Failures",
             "",
         ] + [f"- {f}" for f in failures] + [""])
-    
+
+    lines.extend([
+        "## Flipped Items",
+        "",
+        f"### Right-to-wrong ({len(r2w_ids)})",
+        "",
+    ] + [f"- `{iid}`" for iid in r2w_ids] + [
+        "",
+        f"### Wrong-to-right ({len(w2r_ids)})",
+        "",
+    ] + [f"- `{iid}`" for iid in w2r_ids] + [""])
+
     lines.append(f"**Verdict: {verdict}**")
     
     with open(path, "w") as f:
