@@ -111,6 +111,19 @@ The article covers:
 | bf16 vs AWQ | 13 | 35 | 6.5% | [3.0%, 10.0%] | 0.0024 |
 | bf16 vs GPTQ-Int4 | 14 | 24 | 7.0% | [4.0%, 11.0%] | 0.1443 |
 
+### IFEval (541 prompts, rule-checked)
+
+| Model | Accuracy | Δ vs bf16 |
+|-------|----------|-----------|
+| bf16 (baseline) | 59.5% (322/541) | — |
+| AWQ (4-bit) | 56.7% (307/541) | −2.8 pts |
+| GPTQ-Int4 | 58.6% (317/541) | −0.9 pts |
+
+| Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
+|------------|-------------|-------------|----------|--------|-----------|
+| bf16 vs AWQ | 56 | 41 | 10.4% | [7.8%, 12.9%] | 0.155 |
+| bf16 vs GPTQ-Int4 | 45 | 40 | 8.3% | [6.1%, 10.5%] | 0.664 |
+
 ### Quantization Comparison (30 items)
 
 | Model | Accuracy | Right→Wrong | Wrong→Right | McNemar p |

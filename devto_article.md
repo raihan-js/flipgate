@@ -125,6 +125,23 @@ AWQ's difference is statistically significant (p = 0.0024) — in the direction 
 
 Against our measured noise floor of 0% (bf16-vs-bf16, HF generate, temp 0, batch 1/8), every one of these flips exceeds the floor.
 
+### IFEval: Instruction Following Degrades (541 prompts)
+
+GSM8K showed accuracy going up. IFEval — 541 rule-checked instruction-following prompts scored with our own reimplementation of the 25 published IFEval rules — shows the other side:
+
+| Model | Accuracy | Δ vs bf16 |
+|-------|----------|-----------|
+| bf16 (baseline) | 59.5% (322/541) | — |
+| AWQ (4-bit) | 56.7% (307/541) | **−2.8 pts** |
+| GPTQ-Int4 | 58.6% (317/541) | **−0.9 pts** |
+
+| Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
+|------------|-------------|-------------|----------|--------|-----------|
+| bf16 vs AWQ | 56 | 41 | 10.4% | [7.8%, 12.9%] | 0.155 |
+| bf16 vs GPTQ-Int4 | 45 | 40 | 8.3% | [6.1%, 10.5%] | 0.664 |
+
+Here the aggregate *does* move — AWQ loses nearly 3 points — but the flip counts tell the fuller story: 56 and 45 previously-passing instructions broke. The two task families together make the case no single number can: on math reasoning the quantized models looked *better* while breaking answers; on instruction following they look *worse*, and the flips quantify exactly how much worse per item.
+
 ### Minimum Detectable Effect
 
 How many items do you need to catch a regression? For paired binary outcomes (McNemar, 80% power, α = 0.05, baseline accuracy 34%):

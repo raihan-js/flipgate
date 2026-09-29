@@ -105,6 +105,14 @@ datasets:
     num_items: 155
     scorer: "fedproc_registry"
     description: "FAR/DFARS clause registry hallucination check"
+    
+  bfcl_simple:
+    source: "gorilla-llm/Berkeley-Function-Calling-Leaderboard"
+    subset: "BFCL_v3_simple"
+    revision: "main"
+    num_items: 400
+    scorer: "bfcl"
+    description: "Function calling accuracy (simple category)"
 
 # ============================================================================
 # NOISE FLOOR CONFIGURATION
