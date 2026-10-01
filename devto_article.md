@@ -106,26 +106,24 @@ LLM judges are slow, expensive, and non-deterministic. Rule-based scorers are fa
 
 We evaluated **Qwen2.5-3B-Instruct** in five configurations on **GSM8K** (math reasoning):
 
-### Large-Scale Evaluation (200 items)
+### Large-Scale Evaluation (1,000 items, HF generate)
 
 | Model | Accuracy | Δ vs bf16 | Items |
 |-------|----------|-----------|-------|
-| bf16 (HF, baseline) | 34.0% (68/200) | — | 200 |
-| AWQ (4-bit, HF) | 45.0% (90/200) | **+11.0 pts** | 200 |
-| GPTQ-Int4 (HF) | 39.0% (78/200) | **+5.0 pts** | 200 |
-| f16 (llama.cpp) | 31.0% (62/200) | **−3.0 pts** | 200 |
-| q4_K_M (llama.cpp) | 36.5% (73/200) | **+2.5 pts** | 200 |
+| bf16 (baseline) | 33.0% (330/1000) | — | 1000 |
+| AWQ (4-bit) | 43.1% (431/1000) | **+10.1 pts** | 1000 |
+| GPTQ-Int4 | 37.3% (373/1000) | **+4.3 pts** | 1000 |
 
-**This is the FlipGate story in one table.** The HF-served quantized models (AWQ, GPTQ) *improved* accuracy — AWQ by 11 points, GPTQ by 5 — yet both broke previously-correct answers. The llama.cpp models show a different pattern: f16 *lost* 3 points, while q4_K_M gained 2.5 points.
+f16 and q4_K_M (llama.cpp, 200 items each) are covered in the engine-control section below.
+
+**This is the FlipGate story in one table.** Both quantized models *improved* accuracy — yet both broke previously-correct answers, and at n=1,000 **both differences are statistically significant**:
 
 | Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
 |------------|-------------|-------------|----------|--------|-----------|
-| bf16 vs AWQ | 13 | 35 | 6.5% | [3.0%, 10.0%] | **0.0024** |
-| bf16 vs GPTQ-Int4 | 14 | 24 | 7.0% | [4.0%, 11.0%] | 0.1443 |
-| bf16 vs f16 (llama.cpp) | 24 | 18 | 12.0% | [8.0%, 16.5%] | 0.4404 |
-| bf16 vs q4_K_M (llama.cpp) | 21 | 26 | 10.5% | [6.5%, 15.0%] | 0.5596 |
+| bf16 vs AWQ | 77 | 178 | 7.7% | [6.3%, 9.5%] | **<0.0001** |
+| bf16 vs GPTQ-Int4 | 89 | 132 | 8.9% | [7.2%, 10.7%] | **0.0047** |
 
-AWQ's difference is statistically significant (p = 0.0024) — in the direction of *improvement* (35 fixes vs 13 breaks). The others are not significant at p < 0.05. But in all cases, aggregate accuracy hid real per-item regressions: 13–24 correct answers broke silently. A team shipping on accuracy alone would never see this.
+77–89 correct answers broke silently behind accuracy gains. A team shipping on accuracy alone would never see this.
 
 ### Engine vs Quantization: The Control Row That Earned Its Place
 
