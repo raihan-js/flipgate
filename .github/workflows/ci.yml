@@ -22,8 +22,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
       
       - name: Install dependencies
+        # Install the package itself (not a hardcoded dep list) so CI can
+        # never drift from pyproject.toml again. This exact drift broke CI:
+        # langdetect was added to pyproject but not to this list, failing
+        # test_kannada_pass on all versions while passing locally.
         run: |
-          pip install pyyaml click rich scipy statsmodels numpy pytest pytest-cov
+          pip install -e ".[dev]"
       
       - name: Run tests
         run: |

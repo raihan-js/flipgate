@@ -13,13 +13,11 @@ authors = [
     {name = "Raihan Sikder", email = "raihan@example.com"}
 ]
 dependencies = [
-    "torch>=2.1.0",
-    "transformers>=4.36.0",
-    "vllm>=0.2.7",
-    "datasets>=2.16.0",
+    # Core: everything the test suite, CLI gate, scorers, stats, and
+    # results store need. Deliberately excludes GPU/ML weights libraries
+    # so `pip install -e ".[dev]"` stays light and CI-fast.
     "scipy>=1.11.0",
     "statsmodels>=0.14.0",
-    "mlflow>=2.9.0",
     "pyyaml>=6.0",
     "click>=8.1.0",
     "rich>=13.0.0",
@@ -34,6 +32,17 @@ dev = [
     "pytest-cov>=4.1.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
+]
+gpu = [
+    # Heavy inference/eval stack: torch, serving engines, datasets, tracking.
+    # Needed for scripts/run_*.py, NOT for tests or the gate CLI.
+    "torch>=2.1.0",
+    "transformers>=4.36.0",
+    "vllm>=0.2.7",
+    "datasets>=2.16.0",
+    "mlflow>=2.9.0",
+    "optimum>=1.0.0",
+    "accelerate>=0.25.0",
 ]
 llamacpp = [
     "llama-cpp-python>=0.2.0",
