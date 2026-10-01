@@ -172,6 +172,23 @@ The third column needs no accuracy at all — just a registry. We prompt each mo
 
 Both increases are statistically significant. This is the gate's second tripwire firing exactly as designed: `fail when registry hallucination rises`. Quantization doesn't just flip answers — it fabricates clause numbers, and the registry check catches it with no LLM judge involved.
 
+### BFCL: Function Calling Is the Most Stable Capability (400 simple tasks)
+
+The fourth task family — Berkeley Function Calling, scored as executable-call rate (right function name + all required arguments, no gold answers needed):
+
+| Model | Executable-call rate | Δ vs bf16 |
+|-------|---------------------|-----------|
+| bf16 (baseline) | 72.8% (291/400) | — |
+| AWQ (4-bit) | 75.2% (301/400) | **+2.4 pts** |
+| GPTQ-Int4 | 71.8% (287/400) | −1.0 pts |
+
+| Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
+|------------|-------------|-------------|----------|--------|-----------|
+| bf16 vs AWQ | 6 | 16 | 1.5% | [0.5%, 2.8%] | 0.055 |
+| bf16 vs GPTQ-Int4 | 12 | 8 | 3.0% | [1.5%, 4.8%] | 0.502 |
+
+Function calling flips the least of any family tested (1.5–3.0% vs 6.5–12% elsewhere) — structured output with explicit schemas appears more robust to quantization than free-form reasoning. AWQ's asymmetry is borderline significant (p=0.055, improvement direction).
+
 ### Minimum Detectable Effect
 
 How many items do you need to catch a regression? For paired binary outcomes (McNemar, 80% power, α = 0.05, baseline accuracy 34%):

@@ -144,6 +144,19 @@ The article covers:
 | AWQ (4-bit) | 67.1% (104/155) | −14.8 pts | 34 | 0.0010 |
 | GPTQ-Int4 | 74.2% (115/155) | −7.7 pts | 20 | 0.0376 |
 
+### BFCL Function Calling (400 simple tasks, executable-call rate)
+
+| Model | Rate | Δ vs bf16 |
+|-------|------|-----------|
+| bf16 (baseline) | 72.8% (291/400) | — |
+| AWQ (4-bit) | 75.2% (301/400) | +2.4 pts |
+| GPTQ-Int4 | 71.8% (287/400) | −1.0 pts |
+
+| Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
+|------------|-------------|-------------|----------|--------|-----------|
+| bf16 vs AWQ | 6 | 16 | 1.5% | [0.5%, 2.8%] | 0.055 |
+| bf16 vs GPTQ-Int4 | 12 | 8 | 3.0% | [1.5%, 4.8%] | 0.502 |
+
 ### Quantization Comparison (30 items)
 
 | Model | Accuracy | Right→Wrong | Wrong→Right | McNemar p |
