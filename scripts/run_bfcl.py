@@ -15,7 +15,9 @@ from flipgate.store import ResultsStore, generate_run_id
 
 BFCL_DIR = "/home/raihan/.cache/huggingface/hub/datasets--gorilla-llm--Berkeley-Function-Calling-Leaderboard/snapshots/61fc0608cfd831fcfbbaa676ebdfef0ed963eeda"
 FILES = {"simple": "BFCL_v3_simple.json", "multiple": "BFCL_v3_multiple.json",
-         "parallel": "BFCL_v3_parallel.json"}
+         "parallel": "BFCL_v3_parallel.json",
+         "exec_simple": "BFCL_v3_exec_simple.json",
+         "exec_multiple": "BFCL_v3_exec_multiple.json"}
 
 SYSTEM = ("You are a function-calling assistant. Given the available functions "
           "and the user request, reply with ONLY a JSON object like "
@@ -40,7 +42,10 @@ def build_prompt(item: dict) -> tuple[str, dict]:
     user_text = " ".join(m.get("content", "") for turn in turns for m in turn
                          if m.get("role") == "user")
     prompt = f"Available functions:\n{spec}\n\nUser request: {user_text}"
-    return prompt, {"function": funcs}
+    ref = {"function": funcs}
+    if item.get("ground_truth"):
+        ref["ground_truth"] = item["ground_truth"]
+    return prompt, ref
 
 
 def main():

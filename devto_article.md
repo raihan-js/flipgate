@@ -170,22 +170,22 @@ The third column needs no accuracy at all — just a registry. We prompt each mo
 
 Both increases are statistically significant. This is the gate's second tripwire firing exactly as designed: `fail when registry hallucination rises`. Quantization doesn't just flip answers — it fabricates clause numbers, and the registry check catches it with no LLM judge involved.
 
-### BFCL: Function Calling Is the Most Stable Capability (400 simple tasks)
+### BFCL: Function Calling Is the Most Stable Capability (550 tasks)
 
-The fourth task family — Berkeley Function Calling, scored as executable-call rate (right function name + all required arguments, no gold answers needed):
+Three BFCL slices — simple (400), exec-simple (100, exact gold match), exec-multiple (50) — scored as executable-call rate:
 
 | Model | Executable-call rate | Δ vs bf16 |
 |-------|---------------------|-----------|
-| bf16 (baseline) | 72.8% (291/400) | — |
-| AWQ (4-bit) | 75.2% (301/400) | **+2.4 pts** |
-| GPTQ-Int4 | 71.8% (287/400) | −1.0 pts |
+| bf16 (baseline) | 71.8% (395/550) | — |
+| AWQ (4-bit) | 74.0% (407/550) | **+2.2 pts** |
+| GPTQ-Int4 | 71.1% (391/550) | −0.7 pts |
 
 | Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
 |------------|-------------|-------------|----------|--------|-----------|
-| bf16 vs AWQ | 6 | 16 | 1.5% | [0.5%, 2.8%] | 0.055 |
-| bf16 vs GPTQ-Int4 | 12 | 8 | 3.0% | [1.5%, 4.8%] | 0.502 |
+| bf16 vs AWQ | 6 | 18 | 1.1% | [0.4%, 2.0%] | **0.0247** |
+| bf16 vs GPTQ-Int4 | 14 | 10 | 2.5% | [1.3%, 4.0%] | 0.5403 |
 
-Function calling flips the least of any family tested (1.5–3.0% vs 6.5–12% elsewhere) — structured output with explicit schemas appears more robust to quantization than free-form reasoning. AWQ's asymmetry is borderline significant (p=0.055, improvement direction).
+At n=400 AWQ sat at p=0.055 (borderline); at n=550 it crossed into significance. Function calling remains the most stable family under quantization — structured output with explicit schemas resists flips better than free-form reasoning.
 
 ### Minimum Detectable Effect
 

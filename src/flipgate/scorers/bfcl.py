@@ -16,27 +16,89 @@ class BFCLScorer(BaseScorer):
     
     def score(self, prompt: str, response: str, reference: dict[str, Any]) -> float:
         """Score a function calling response.
-        
-        Args:
-            prompt: The input prompt (not used for scoring)
-            response: The model's response
-            reference: Reference data with expected function calls
-            
+
+        Two modes (both honest, documented per item):
+        - spec mode: reference has "function" specs -> executable-call rate
+          (right name + all required args). Used for simple/parallel sets.
+        - gold mode: reference has "ground_truth" call strings ->
+          exact match on name + args (numeric tolerance). Used for exec sets.
+
         Returns:
             Score between 0.0 and 1.0
         """
+        if reference.get("ground_truth"):
+            return self._score_exact(response, reference["ground_truth"])
+
         expected_calls = reference.get("function", [])
         if not expected_calls:
             return 1.0  # No expected calls, so response is correct
-        
+
         # Parse function calls from response
         predicted_calls = self._extract_function_calls(response)
-        
+
         if not predicted_calls:
             return 0.0  # No function calls found
-        
+
         # Compare predicted vs expected
         return self._compare_calls(predicted_calls, expected_calls)
+
+    @staticmethod
+    def _parse_call_string(s: str) -> tuple[str, dict] | None:
+        """Parse 'name(k=v, k2=v2)' into (name, args). Returns None on failure."""
+        m = re.match(r"\s*([A-Za-z0-9_.]+)\s*\((.*)\)\s*$", s, re.DOTALL)
+        if not m:
+            return None
+        name, argstr = m.group(1), m.group(2)
+        args: dict[str, Any] = {}
+        for part in argstr.split(","):
+            if "=" not in part:
+                return None
+            k, v = part.split("=", 1)
+            args[k.strip()] = v.strip().strip("\"'")
+        return name, args
+
+    @staticmethod
+    def _values_equal(a: str, b: str) -> bool:
+        """Numeric-tolerant comparison (handles 1/6 vs 0.1667, '5' vs 5)."""
+        def num(x: str):
+            x = str(x).strip()
+            try:
+                if "/" in x and x.count("/") == 1:
+                    p, q = x.split("/")
+                    return float(p) / float(q)
+                return float(x)
+            except (ValueError, ZeroDivisionError):
+                return None
+        na, nb = num(a), num(b)
+        if na is not None and nb is not None:
+            return abs(na - nb) < 1e-6
+        return str(a).strip().lower() == str(b).strip().lower()
+
+    def _score_exact(self, response: str, ground_truth: list[str]) -> float:
+        """Exact match against gold call strings. All gold calls must be
+        matched by distinct predicted calls (name + every gold arg)."""
+        predicted = self._extract_function_calls(response)
+        if not predicted:
+            return 0.0
+        gold = [self._parse_call_string(g) for g in ground_truth]
+        gold = [g for g in gold if g is not None]
+        if not gold:
+            return 0.0
+        used = set()
+        matched = 0
+        for gname, gargs in gold:
+            for i, p in enumerate(predicted):
+                if i in used:
+                    continue
+                if p.get("name") != gname:
+                    continue
+                pargs = p.get("arguments", {})
+                if all(k in pargs and self._values_equal(pargs[k], v)
+                       for k, v in gargs.items()):
+                    used.add(i)
+                    matched += 1
+                    break
+        return matched / len(gold)
     
     def _extract_function_calls(self, response: str) -> list[dict]:
         """Extract function calls from model response.
