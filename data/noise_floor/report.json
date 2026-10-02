@@ -1,0 +1,34 @@
+{
+  "model": "data/models/Qwen--Qwen2.5-3B-Instruct",
+  "engine": "vllm",
+  "n_items": 200,
+  "temperature": 0.0,
+  "max_tokens": 256,
+  "throughput": {
+    "bs1_pass1": {
+      "items": 200,
+      "seconds": 1338.0,
+      "gen_tokens": 37992,
+      "tokens_per_s": 28.4
+    }
+  },
+  "by_batch_size": {
+    "1": {
+      "n": 200,
+      "acc_pass0": 0.31,
+      "acc_pass1": 0.315,
+      "right_to_wrong": 0,
+      "wrong_to_right": 1,
+      "both_correct": 62,
+      "both_wrong": 137,
+      "total_flips": 1,
+      "r2w_rate": 0.0,
+      "r2w_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "identical_scores": false
+    }
+  }
+}
