@@ -134,6 +134,15 @@ So the 33-43% above mostly measures "finished within 256 tokens and the extracto
 
 The AWQ result survives; the GPTQ GSM8K result does not. A re-run with a 1,024-token cap is the right fix and is planned. The FedProc registry check (short outputs) and BFCL (short function calls) are not affected by this cap.
 
+### Harness health: `flipgate check` now refuses truncated comparisons
+
+The GSM8K caveat above is the kind of bug a release gate should catch, so it now does. Each stored item can carry `metadata.finish_reason` (`stop` or `length`) and `n_new_tokens`; `flipgate check` computes the share of responses that hit the generation cap in both runs and:
+
+- exits with **INVALID** (code 2) if more than 10% of responses in either run were cut off (`--max-truncation`), or if the two runs' truncation rates differ by more than 5 points (a more verbose candidate would look worse for reasons unrelated to quality). `--allow-truncation` reports anyway.
+- warns, when no finish reason was recorded, that truncation cannot be measured and (for GSM8K) how many responses contain no final-answer marker. On the original bf16 and AWQ runs this reads 84% and 92%.
+
+`scripts/run_gsm8k.py` now takes the cap from `configs/manifest.yaml` (manifest v1.1.0, `max_tokens: 1024`), batches with left padding (`--determinism-check N` compares batch size 1 against `--batch-size`), records finish reasons, and stores both the v2 score and the original v1 score. The first sweeps' runner is kept as `scripts/run_gsm8k_v1_cap256.py`. `GSM8KScorer` (v2) handles `\boxed{}` answers and thousands separators; `GSM8KScorerV1` reproduces the original numbers.
+
 ### Engine vs Quantization Control (llama.cpp, 200 items)
 
 | Model | Accuracy | Δ vs bf16 |

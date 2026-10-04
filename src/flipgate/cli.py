@@ -122,7 +122,12 @@ def list_runs(manifest, results_dir):
 @click.option("--margin", default=2.0, help="Fail if flip rate > margin * noise floor")
 @click.option("--report", "report_path", type=click.Path(), default=None,
               help="Write Markdown report to this path")
-def check(baseline, candidate, dataset, results_dir, alpha, noise_floor, margin, report_path):
+@click.option("--max-truncation", default=0.10, show_default=True,
+              help="INVALID if more than this share of responses hit the generation cap")
+@click.option("--allow-truncation", is_flag=True,
+              help="Report the health problems but do not invalidate the comparison")
+def check(baseline, candidate, dataset, results_dir, alpha, noise_floor, margin, report_path,
+          max_truncation, allow_truncation):
     """Check if candidate passes the gate vs baseline.
     
     Compares right-to-wrong flips between baseline and candidate using
@@ -148,6 +153,12 @@ def check(baseline, candidate, dataset, results_dir, alpha, noise_floor, margin,
     baseline_correct = [baseline_items[iid]["score"] == 1.0 for iid in common_ids]
     candidate_correct = [candidate_items[iid]["score"] == 1.0 for iid in common_ids]
     
+    # Harness health (generation truncation) before any statistics are trusted
+    from .health import run_health, compare_health
+    b_health = run_health([baseline_items[i] for i in common_ids], dataset)
+    c_health = run_health([candidate_items[i] for i in common_ids], dataset)
+    h_problems, h_warnings = compare_health(b_health, c_health, max_truncation=max_truncation)
+
     # Statistics
     mcnemar = mcnemar_test(baseline_correct, candidate_correct, alpha=alpha)
     flips = count_flips(baseline_correct, candidate_correct)
@@ -197,7 +208,7 @@ def check(baseline, candidate, dataset, results_dir, alpha, noise_floor, margin,
     table.add_row("R-to-W flip rate", f"{bootstrap_r2w.estimate:.4f}")
     table.add_row("95% CI", f"[{bootstrap_r2w.ci_lower:.4f}, {bootstrap_r2w.ci_upper:.4f}]")
     table.add_row("McNemar p-value", f"{mcnemar.p_value:.4f}")
-    table.add_row("Significant (p<{alpha})", "YES" if mcnemar.significant else "no")
+    table.add_row(f"Significant (p<{alpha})", "YES" if mcnemar.significant else "no")
     
     if noise_floor > 0:
         table.add_row("", "")
@@ -207,6 +218,22 @@ def check(baseline, candidate, dataset, results_dir, alpha, noise_floor, margin,
     
     console.print(table)
     
+    # Harness health first: a truncated comparison cannot be certified either way
+    for w in h_warnings:
+        console.print(f"[yellow]HEALTH WARN[/yellow]: {w}")
+    if h_problems:
+        for prob in h_problems:
+            console.print(f"[red]HEALTH[/red]: {prob}")
+        if not allow_truncation:
+            console.print("\n[bold red]INVALID[/bold red]: responses were cut off by the generation cap, so "
+                          "flips mostly measure verbosity. Re-run with a higher max_tokens "
+                          "(or pass --allow-truncation to report anyway).")
+            if report_path:
+                _write_report(report_path, baseline, candidate, dataset, common_ids,
+                              baseline_acc, candidate_acc, flips, bootstrap_r2w,
+                              mcnemar, noise_floor, floor_comparison, "INVALID", h_problems)
+            sys.exit(2)
+
     # Determine verdict
     fails = []
     if mcnemar.significant and mcnemar.n_01 > mcnemar.n_10:
