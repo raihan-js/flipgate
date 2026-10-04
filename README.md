@@ -1,5 +1,7 @@
 # FlipGate
 
+![FlipGate GSM8K flip counts](images/flipgate-results.png)
+
 A CLI and GitHub Action release gate for quantised and re-served LLMs. Counts per-item right-to-wrong answer flips against a measured bf16 noise floor, using paired statistics (McNemar, paired bootstrap) instead of aggregate accuracy.
 
 ## Why FlipGate?
@@ -111,6 +113,27 @@ The article covers:
 | bf16 vs AWQ | 77 | 178 | 7.7% | [6.3%, 9.5%] | **<0.0001** |
 | bf16 vs GPTQ-Int4 | 89 | 132 | 8.9% | [7.2%, 10.7%] | **0.0047** |
 
+### Harness caveat: the GSM8K runs used a 256-token cap
+
+`scripts/run_gsm8k.py` generates with `max_new_tokens=256` (the manifest says 2048; the manifest was not what this script used). Qwen2.5-3B-Instruct often needs more than 256 tokens for chain-of-thought, so most responses are cut off before a final answer. Measured on the three 1,000-item runs:
+
+| Run | Responses with a `\boxed{}` final answer | Accuracy among those |
+|---|---|---|
+| bf16 | 16.3% | 91.4% |
+| AWQ | 8.0% | 88.8% |
+| GPTQ-Int4 | 8.6% | 79.1% |
+
+So the 33-43% above mostly measures "finished within 256 tokens and the extractor found the answer", not reasoning quality, and absolute accuracy should not be compared with published GSM8K numbers. The flip analysis is still a valid comparison under *this* harness, but part of the accuracy swing is verbosity.
+
+**Scorer sensitivity.** Re-scoring the same stored responses with a more robust extractor (last `\boxed{}`, then `####`, then "answer is", then the last number with thousands separators handled) gives bf16 43.0%, AWQ 50.2%, GPTQ 45.0%, and:
+
+| Comparison (robust extractor) | Right→Wrong | Wrong→Right | Net | McNemar p |
+|---|---|---|---|---|
+| bf16 vs AWQ | 69 | 141 | +7.2 pts | 7.6e-7 |
+| bf16 vs GPTQ-Int4 | 78 | 98 | +2.0 pts | 0.15 |
+
+The AWQ result survives; the GPTQ GSM8K result does not. A re-run with a 1,024-token cap is the right fix and is planned. The FedProc registry check (short outputs) and BFCL (short function calls) are not affected by this cap.
+
 ### Engine vs Quantization Control (llama.cpp, 200 items)
 
 | Model | Accuracy | Δ vs bf16 |
@@ -165,23 +188,9 @@ The article covers:
 | bf16 vs AWQ | 6 | 18 | 1.1% | [0.4%, 2.0%] | **0.0247** |
 | bf16 vs GPTQ-Int4 | 14 | 10 | 2.5% | [1.3%, 4.0%] | 0.5403 |
 
-### Quantization Comparison (30 items)
-
-| Model | Accuracy | Right→Wrong | Wrong→Right | McNemar p |
-|-------|----------|-------------|-------------|-----------|
-| bf16 (baseline) | 30.0% | — | — | — |
-| AWQ (4-bit) | 26.7% | 3 | 2 | 1.0000 |
-| GPTQ-Int4 | 33.3% | 0 | 1 | 1.0000 |
-
-**Finding**: No statistically significant regressions detected (p = 1.0).
-
-**Limitation**: 30 items isn't enough statistical power. Production use requires 200-500+ items.
-
-**Known Issue**: Quantized models (AWQ, GPTQ) failed to run at scale due to Marlin kernel compilation issues with torch 2.13.0 / CUDA 13.0.
-
 ## Gate Demo: Catching a Broken Candidate
 
-A serving config change truncated generation to 32 tokens, cutting off chain-of-thought reasoning:
+A serving config change truncated generation to 32 tokens, cutting off chain-of-thought reasoning (note the baseline GSM8K runs above used a 256-token cap, which is the same failure in milder form):
 
 ```
 $ flipgate check --baseline <bf16-run> --candidate <truncated-run> --dataset gsm8k
@@ -201,6 +210,6 @@ The gate fails the candidate and writes a Markdown report listing all 10 flipped
 
 All evaluation results are published: https://huggingface.co/datasets/raihan-js/flipgate-results
 
-- 21 evaluation runs
-- 530 items evaluated
-- Per-item prompts, responses, and scores
+- 42 evaluation runs (GSM8K, IFEval, FedProc registry check, BFCL; including the three 1,000-item GSM8K runs)
+- 8,168 item-level records
+- Per-item prompts, responses, and scores (so the harness caveat above can be re-checked from the published data)

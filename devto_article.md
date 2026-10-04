@@ -1,6 +1,6 @@
-# FlipGate: Building a Statistical Release Gate for Quantised LLMs
+# AWQ Raised GSM8K Accuracy by 10 Points and Broke 77 Correct Answers
 
-*Or: Why accuracy isn't enough, and how we built a tool to catch the flips it hides*
+*FlipGate: a release gate that counts per-item answer flips against a measured noise floor, and what it found, including a bug in my own baseline.*
 
 ---
 
@@ -8,7 +8,7 @@
 
 When you quantise an LLM from bf16 to INT4, the standard metric is accuracy: does the quantised model get the same percentage of questions right?
 
-But accuracy hides something critical. A model might maintain 80% accuracy while silently flipping 20% of individual answers from right to wrong (and compensating with wrong-to-right flips elsewhere). For production systems, these per-item flips can break user trust, violate compliance requirements, or cause subtle bugs that aggregate metrics miss.
+But accuracy hides something critical. A model can keep the same accuracy while flipping many individual answers from right to wrong, compensated by wrong-to-right flips elsewhere. For production systems, these per-item flips can break user trust, violate compliance requirements, or cause subtle bugs that aggregate metrics miss.
 
 **FlipGate** is a release gate that counts per-item answer flips, compares them against a measured noise floor, and uses paired statistical tests to determine if a quantisation change actually regressed the model.
 
@@ -66,7 +66,7 @@ flipgate/
 │   ├── store.py          # Per-item JSONL results (append-only)
 │   ├── manifest.py       # Frozen eval config (pinned versions)
 │   └── cli.py            # flipgate check, flipgate info, etc.
-├── tests/                # 80 pytest tests
+├── tests/                # 127 pytest tests
 ├── configs/manifest.yaml # Pinned models, datasets, sampling params
 └── .github/actions/      # GitHub Action for CI/CD
 ```
@@ -116,7 +116,7 @@ We evaluated **Qwen2.5-3B-Instruct** in five configurations on **GSM8K** (math r
 
 f16 and q4_K_M (llama.cpp, 200 items each) are covered in the engine-control section below.
 
-**This is the FlipGate story in one table.** Both quantized models *improved* accuracy — yet both broke previously-correct answers, and at n=1,000 **both differences are statistically significant**:
+**This is the FlipGate story in one table, with a harness caveat in the next section.** Both quantized models *improved* accuracy — yet both broke previously-correct answers, and at n=1,000 **both differences are statistically significant**:
 
 | Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
 |------------|-------------|-------------|----------|--------|-----------|
@@ -197,53 +197,52 @@ How many items do you need to catch a regression? For paired binary outcomes (Mc
 | 2 pt | ~1,175 |
 | 5 pt | ~280 |
 
-Our 200 items can reliably detect ~5-point drops. Detecting a 1-point drop needs thousands of items — which is exactly why per-item flip tracking matters more than waiting for aggregate accuracy to move.
+The 1,000-item runs sit between the 2-point and 5-point rows; the 200-item llama.cpp rows can only detect ~5-point drops. Detecting a 1-point drop needs thousands of items, which is why per-item flip tracking matters more than waiting for aggregate accuracy to move.
 
-### Quantization Comparison (30 items)
+### Noise Floor: HF generate and vLLM
 
-Due to CUDA kernel compilation issues with quantized models (Marlin kernels incompatible with torch 2.13.0), we were only able to evaluate 30 items across all three models:
+Before counting flips you need to know how many happen with nothing changed. With temperature 0 and batch sizes 1 and 8, HF generate gave **0 flips** between repeated bf16 runs. vLLM 0.30.0 (eager mode, `VLLM_USE_FLASHINFER_SAMPLER=0`, `VLLM_ATTENTION_BACKEND=FLASH_ATTN`) gave **0 flips at batch 32 and batch 8** over 1,000 items each, and 1 flip in 200 items at batch 1 (wrong→right). On this stack the noise floor is effectively zero, so every flip counted above is a real difference between models or engines. Other stacks (CUDA graphs, other kernels, multi-GPU) can differ, which is why you measure it.
 
-| Model | Accuracy | Right→Wrong Flips | Wrong→Right Flips | McNemar p-value |
-|-------|----------|-------------------|-------------------|-----------------|
-| bf16 (baseline) | 30.0% | — | — | — |
-| AWQ (4-bit) | 26.7% | 3 | 2 | 1.0000 |
-| GPTQ-Int4 | 33.3% | 0 | 1 | 1.0000 |
+### A Bug in My Own Baseline: the 256-Token Cap
 
-**Key finding**: No statistically significant regressions detected (p = 1.0 for both comparisons).
+The GSM8K script generates with `max_new_tokens=256` (the manifest says 2048; the manifest was not what this script used). Qwen2.5-3B-Instruct often needs more than 256 tokens for chain-of-thought, so most responses are cut off before a final answer. Measured on the three 1,000-item runs:
 
-### What This Means
+| Run | Responses with a `\boxed{}` final answer | Accuracy among those |
+|---|---|---|
+| bf16 | 16.3% | 91.4% |
+| AWQ | 8.0% | 88.8% |
+| GPTQ-Int4 | 8.6% | 79.1% |
 
-With 30 items, we lack statistical power to detect small differences. But the flip rates are low (0-10%), suggesting that for this model and task, quantisation doesn't cause meaningful per-item regressions.
+So the 33-43% above mostly measures "finished within 256 tokens and the extractor found the answer", not reasoning quality, and absolute accuracy should not be compared with published GSM8K numbers. The flip analysis is still a valid comparison under *this* harness, but part of the accuracy swing is verbosity.
 
-This is actually a **valid and publishable result**: sometimes the answer is "no significant difference," and that's useful information for teams deciding whether to ship a quantised model.
+**Scorer sensitivity.** Re-scoring the same stored responses with a more robust extractor (last `\boxed{}`, then `####`, then "answer is", then the last number with thousands separators handled) gives bf16 43.0%, AWQ 50.2%, GPTQ 45.0%, and:
 
-The 200-item bf16 evaluation demonstrates the framework's ability to handle larger datasets efficiently, completing in 25 minutes on a single RTX 3060.
+| Comparison (robust extractor) | Right→Wrong | Wrong→Right | Net | McNemar p |
+|---|---|---|---|---|
+| bf16 vs AWQ | 69 | 141 | +7.2 pts | 7.6e-7 |
+| bf16 vs GPTQ-Int4 | 78 | 98 | +2.0 pts | 0.15 |
+
+The AWQ result survives; the GPTQ GSM8K result does not. A re-run with a 1,024-token cap is the right fix and is planned. The FedProc registry check (short outputs) and BFCL (short function calls) are not affected by this cap.
 
 ---
 
 ## Challenges & Lessons Learned
 
-### 1. vLLM CUDA Compiler Issues
+### 1. Read the raw responses
 
-We attempted to use vLLM for faster batched inference and to measure the noise floor with realistic batched kernels. However, vLLM's flashinfer dependency requires CUDA compilation that failed on our system:
+The most expensive mistake in this project was not a kernel or a statistic. It was trusting an accuracy number without reading the outputs: the 256-token cap truncated most GSM8K answers, and it only became visible when I read the failing responses and saw them stop mid-equation. A frozen manifest that does not match what the script actually ran is worse than no manifest. FlipGate's own demo (a 32-token cap that the gate fails correctly) describes the same failure in a milder form.
 
-```
-nvcc fatal: Unknown option '--compress-mode=size'
-```
+### 2. Sample size decided every conclusion
 
-This is a known issue with older CUDA toolkits. **Lesson**: Always test your inference engine on your target hardware before committing to an evaluation pipeline.
+At n=30 nothing was detectable (p=1.0 everywhere). BFCL for AWQ sat at p=0.055 at n=400 and crossed to p=0.0247 at n=550. Two of the GSM8K conclusions change with the answer extractor. Treat a p-value as a statement about one harness at one sample size.
 
-### 2. Network & Download Limits
+### 3. The noise floor was zero, and that is a result
 
-We hit network issues trying to download BFCL (Berkeley Function Calling Leaderboard) for a fourth task family. **Lesson**: Cache datasets locally and have fallback plans for network outages.
+I expected run-to-run nondeterminism and measured none on HF generate (batch 1 and 8) or on vLLM in eager mode (batch 32 and 8). That makes every flip attributable, and it is specific to this stack.
 
-### 3. Statistical Power
+### 4. Tooling friction
 
-With 30 items, we can't detect flip rates below ~10% with reasonable confidence. **Lesson**: For production use, you need 200-500+ items to detect meaningful regressions. We built the framework to scale, but our test hardware (single RTX 3060) limited the scope.
-
-### 4. HF Generate is Deterministic (at batch_size=1)
-
-We expected to see nondeterminism from floating-point operations, but HF generate with batch_size=1 produced identical outputs across runs. This suggests the noise floor comes from **batched kernels** (which we couldn't test due to vLLM issues), not from the model itself.
+vLLM's flashinfer sampler needed a newer CUDA toolchain than I had (`nvcc fatal: Unknown option '--compress-mode=size'`); the fix was disabling it and forcing FlashAttention. gptqmodel's Marlin kernels did not compile against torch 2.13 / CUDA 13, so the quantised runs use HF generate. Test your inference engine on the target hardware before committing to an evaluation pipeline.
 
 ---
 
@@ -270,13 +269,10 @@ We're releasing FlipGate as open source because:
 
 ## What's Next
 
-1. **vLLM noise floor**: Once we resolve the CUDA compiler issues, we'll measure the actual noise floor with batched kernels.
-
-2. **BFCL integration**: Function calling is a critical capability. We'll add BFCL as a fourth task family.
-
-3. **Larger evaluations**: We need 500+ items for statistical power. This requires more GPU time or cloud resources.
-
-4. **Multi-model comparison**: Compare flip rates across different model families (Llama, Mistral, Qwen).
+1. **Re-run GSM8K with a 1,024-token cap** and report both harnesses side by side. This is the fix for the biggest weakness above.
+2. **Larger models (7B, 13B)** on rented GPUs, and a Marlin build so quantised models can run on vLLM.
+3. **More task families**, for example code generation, with execution-based scoring.
+4. **Noise floor under non-eager vLLM** and other stacks.
 
 ---
 
@@ -307,23 +303,20 @@ flipgate check \
 
 ## Limitations
 
-- **Small sample size for quantized models**: 30 items isn't enough for high-confidence decisions. Production use requires 200-500+ items. We successfully ran 200 items on bf16, but quantized models hit CUDA kernel compilation issues.
-- **CUDA compatibility issues**: vLLM's flashinfer and gptqmodel's Marlin kernels failed to compile with CUDA 13.0 / torch 2.13.0 due to C++17 compatibility issues (`data member initializer is not allowed` in AutogradState.h). This prevented us from running large-scale evaluations on quantized models.
-- **Single task family**: We only tested GSM8K. Different tasks (summarisation, code generation, function calling) may behave differently.
-- **Single model**: Qwen2.5-3B is one model. Results may not generalise to other architectures.
-- **HF generate only**: We couldn't test vLLM due to CUDA issues. Batched kernels may show different noise floors.
-- **Single model**: Qwen2.5-3B is one model. Results may not generalise to other architectures.
+- **GSM8K harness**: 256-token generation cap and a strict answer extractor (see above). Absolute accuracy is not comparable with published numbers; the GPTQ GSM8K result is not robust to the extractor.
+- **One model**: Qwen2.5-3B-Instruct only. Results may not generalise to other families or sizes.
+- **Quantised runs on HF generate only**: Marlin kernels did not compile here, so quantised models were not served through vLLM.
+- **Underpowered controls**: the llama.cpp rows are 200 items and cannot detect small effects.
+- **Noise floor is for one stack**: measured on HF generate and eager vLLM at temperature 0.
 
 ---
 
 ## Conclusion
 
-FlipGate demonstrates that **accuracy isn't enough** for evaluating quantised LLMs. By counting per-item flips and comparing against a measured noise floor, we can catch regressions that aggregate metrics miss.
+Aggregate accuracy hides item-level change. On GSM8K both quantised variants gained accuracy while 69-89 previously correct answers broke (the AWQ result survives a stricter re-score; GPTQ's does not). On the FAR registry check both fabricated more clauses (AWQ added 34, McNemar p=0.001). On function calling almost nothing moved. Which family you gate on matters, and so does reading the outputs.
 
-The tool is production-ready for teams who want statistical rigor in their model evaluation pipeline. The framework is extensible—add your own scorers, engines, and datasets.
-
-Most importantly, we've shown that **sometimes the answer is "no significant difference,"** and that's a valid, useful result. Not every quantisation causes flips. But now you can prove it, not just assume it.
+The tool is a CLI and a GitHub Action; the framework is extensible with your own scorers, engines and datasets.
 
 ---
 
-*Have questions or feedback? Open an issue on GitHub or reach out on Twitter.*
+*Questions or corrections? Open an issue on GitHub: github.com/raihan-js/flipgate*
