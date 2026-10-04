@@ -1,3 +1,5 @@
+![FlipGate GSM8K flip counts](https://raw.githubusercontent.com/raihan-js/flipgate/HEAD/images/flipgate-results.png)
+
 # AWQ Raised GSM8K Accuracy by 10 Points and Broke 77 Correct Answers
 
 *FlipGate: a release gate that counts per-item answer flips against a measured noise floor, and what it found, including a bug in my own baseline.*
