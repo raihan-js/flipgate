@@ -10,13 +10,15 @@ A CLI + GitHub Action release gate for quantised/re-served LLMs. Counts per-item
 
 Teams ship quantised models when aggregate accuracy looks unchanged. Dutta et al. 2024 showed aggregate accuracy hides per-question flips. FlipGate adds: (1) a measured noise floor first — under greedy decoding, seeds change nothing; batch size and kernel choice do; (2) a candidate fails only when right-to-wrong flips are significantly above the floor (p<0.05); (3) a hallucination column checking clause numbers against the 1,032-clause FAR/DFARS registry, no LLM judge.
 
-## Key results
+## Key results (re-run 2026-10-05; the first GSM8K sweeps used a 256-token cap and are superseded)
 
-- GSM8K-1000: bf16 33.0%, AWQ 43.1% (p<0.0001), GPTQ 37.3% (p=0.0047). 77–89 correct answers broke silently behind accuracy gains.
-- FedProc hallucination: AWQ p=0.0010, GPTQ p=0.0376 (both significant rises).
-- BFCL-550: AWQ p=0.0247, GPTQ p=0.5403 (honest null).
-- Noise floor: 0 flips HF generate batch 1/8; 0 flips vLLM batch 32/8; 1 W2R flip in 200 at vLLM batch 1.
-- Engine control: llama.cpp f16 isolates engine (12%) from quantisation (7%) effects.
+- GSM8K-1000 (1,024-token cap, 0% truncated, batch size 1): bf16 79.7%, AWQ 76.2% (R→W 91, W→R 56, p=0.0050, FAIL), GPTQ 76.0% (91 / 54, p=0.0028, FAIL). The old 33.0 / 43.1 / 37.3% and "AWQ +10.1" are retired.
+- Answer extractor flips the sign: strict v1 extractor gives AWQ +3.2 pts (p=0.050) because quantised models drop `\boxed{}` (57.7% bf16 vs 28.3% AWQ, 32.8% GPTQ); robust v2 gives −3.5.
+- Noise floor: 0 flips for repeat runs at a fixed batch size (HF generate, eager vLLM). Changing batch size 1→8 (bf16, 200 items): 124/200 responses differ in text, 6 R→W + 7 W→R = 3.0% [1.0%, 5.5%] R→W floor. Text differs between batch 1 and 8 for 14/24 (bf16), 5/24 (AWQ), 6/24 (GPTQ) prompts.
+- FedProc hallucination: AWQ p=0.0010, GPTQ p=0.0376 (both significant rises; unaffected by the cap).
+- BFCL-550: AWQ p=0.0247, GPTQ p=0.5403 (unaffected).
+- IFEval-541: AWQ −2.8 pts (p=0.155), GPTQ −0.9 (p=0.664).
+- llama.cpp engine-control rows WITHDRAWN (256-token cap vs truncated baseline, different system prompt than HF). `scripts/run_gguf.py` now uses the HF chat template and the manifest cap, but the installed llama-cpp-python is CPU-only (est. 13 h for 200 items); planned replacement is HF vs vLLM on the same bf16 weights.
 
 ## Stack
 
@@ -48,7 +50,7 @@ cd flipgate
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"        # tests + CLI + gate (light, no torch)
 pip install -e ".[gpu]"        # adds torch/transformers/vllm for eval scripts
-PYTHONPATH=src pytest tests/ -v  # 127 tests
+PYTHONPATH=src pytest tests/ -v  # 146 tests
 PYTHONPATH=src python -m flipgate.cli --help
 ```
 
@@ -58,6 +60,6 @@ Qwen2.5-3B-Instruct, -AWQ, -GPTQ-Int4, -GGUF, Qwen2.5-0.5B-Instruct from Hugging
 
 ## Current status — COMPLETE
 
-- 127 tests, CI green, GitHub repo, HF dataset, dev.to article, social kit
+- 146 tests, CI green, GitHub repo, HF dataset (rebuilt as flat tables), dev.to article (rewritten for the re-run), social kit
 - Repo: https://github.com/raihan-js/flipgate
 - HF: https://huggingface.co/datasets/raihan-js/flipgate-results

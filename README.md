@@ -8,7 +8,7 @@ A CLI and GitHub Action release gate for quantised and re-served LLMs. Counts pe
 
 Teams usually ship a quantised model once aggregate accuracy looks unchanged. But [Dutta et al. 2024](https://arxiv.org/abs/2407.09141) showed that aggregate accuracy can hide many per-question flips. FlipGate adds:
 
-1. **Noise floor measurement** — bf16-vs-bf16 flip rate under greedy decoding (temp 0) across batch sizes 1/8/32, with/without `batch_invariant_ops`
+1. **Noise floor measurement** — bf16-vs-bf16 flips under greedy decoding (temp 0): 0 for repeat runs at a fixed batch size, and about 3% right→wrong when only the batch size changes (GSM8K, Qwen2.5-3B, HF generate)
 2. **Statistical rigor** — A candidate only fails when right-to-wrong flips are significantly above the measured floor (p<0.05)
 3. **Hallucination detection** — FedProc FAR/DFARS registry check (no LLM judge)
 
@@ -98,70 +98,43 @@ The article covers:
 
 ## Results Summary
 
-### Large-Scale Evaluation (1,000 items, HF generate)
+### GSM8K (1,000 items, HF generate, 1,024-token cap, 0% truncated; re-run 2026-10-05)
 
 | Model | Accuracy | Δ vs bf16 | Items |
 |-------|----------|-----------|-------|
-| bf16 (baseline) | 33.0% (330/1000) | — | 1000 |
-| AWQ (4-bit) | 43.1% (431/1000) | **+10.1 pts** | 1000 |
-| GPTQ-Int4 | 37.3% (373/1000) | **+4.3 pts** | 1000 |
+| bf16 (baseline) | 79.7% (797/1000) | — | 1000 |
+| AWQ (4-bit) | 76.2% (762/1000) | **−3.5 pts** | 1000 |
+| GPTQ-Int4 | 76.0% (760/1000) | **−3.7 pts** | 1000 |
 
-**Flip analysis (1,000 common items):**
+**Flip analysis (1,000 common items, robust answer extractor):**
 
-| Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
-|------------|-------------|-------------|----------|--------|-----------|
-| bf16 vs AWQ | 77 | 178 | 7.7% | [6.3%, 9.5%] | **<0.0001** |
-| bf16 vs GPTQ-Int4 | 89 | 132 | 8.9% | [7.2%, 10.7%] | **0.0047** |
+| Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p | Gate |
+|------------|-------------|-------------|----------|--------|-----------|------|
+| bf16 vs AWQ | 91 | 56 | 9.1% | [7.3%, 10.9%] | **0.0050** | FAIL |
+| bf16 vs GPTQ-Int4 | 91 | 54 | 9.1% | [7.4%, 10.9%] | **0.0028** | FAIL |
 
-### Harness caveat: the GSM8K runs used a 256-token cap
+Both quantised models lose accuracy and break 91 previously correct answers each (11% of the 797 that bf16 got right), with significantly more right-to-wrong than wrong-to-right flips; `flipgate check` fails both. Every response ended naturally (`finish_reason=stop` for 3,000 of 3,000; mean length 297 / 274 / 286 tokens for bf16 / AWQ / GPTQ), so none of this is truncation. Runs: `Qwen2.5-3B-bf16_gsm8k_v2`, `Qwen2.5-3B-AWQ_gsm8k_v2`, `Qwen2.5-3B-GPTQ-Int4_gsm8k_v2` in the published dataset; generated at batch size 1 (see below).
 
-`scripts/run_gsm8k.py` generates with `max_new_tokens=256` (the manifest says 2048; the manifest was not what this script used). Qwen2.5-3B-Instruct often needs more than 256 tokens for chain-of-thought, so most responses are cut off before a final answer. Measured on the three 1,000-item runs:
+**The answer extractor decides the sign of the accuracy change.** The quantised models drift away from the `\boxed{}` final-answer format the bf16 model prefers (responses containing `\boxed`: bf16 57.7%, AWQ 28.3%, GPTQ 32.8%). The original strict extractor scores the same stored responses as bf16 60.0%, AWQ 63.2%, GPTQ 61.0%, i.e. AWQ *better* by 3.2 points (R→W 109, W→R 141, McNemar p = 0.050) and GPTQ unchanged (125 vs 135, p = 0.58). The robust extractor (last `\boxed{}`, then `####`, then "answer is", then the last number, thousands separators handled) is the one used above; report which extractor produced a number, and read the strict-extractor change as a formatting effect.
 
-| Run | Responses with a `\boxed{}` final answer | Accuracy among those |
-|---|---|---|
-| bf16 | 16.3% | 91.4% |
-| AWQ | 8.0% | 88.8% |
-| GPTQ-Int4 | 8.6% | 79.1% |
+**Noise floor, measured on the corrected harness.** Repeating a run at a fixed batch size gives identical output (0 flips; HF generate and eager vLLM, as before). Changing only the batch size is different: bf16 at batch size 1 vs batch size 8 (same weights, same prompts, first 200 items, 1,024-token cap) produced different text for 124 of 200 responses, yet changed correctness for only 13 (6 right→wrong, 7 wrong→right): a right→wrong floor of **3.0% [1.0%, 5.5%]**, McNemar p = 1.0 (`Qwen2.5-3B-bf16_gsm8k_v2_bs8`). A 24-prompt check shows the text-level sensitivity for all three models: 14/24 (bf16), 5/24 (AWQ) and 6/24 (GPTQ) responses differ between batch size 1 and 8. The quantised models' 9.1% right→wrong rate is three times that floor, and the interval's upper end for the floor (5.5%) is still below the lower end of theirs (7.3%). The gate's comparisons are only clean when baseline and candidate use the same batch size, so the sweeps above use batch size 1.
 
-So the 33-43% above mostly measures "finished within 256 tokens and the extractor found the answer", not reasoning quality, and absolute accuracy should not be compared with published GSM8K numbers. The flip analysis is still a valid comparison under *this* harness, but part of the accuracy swing is verbosity.
+### What the first GSM8K run said, and why it is withdrawn
 
-**Scorer sensitivity.** Re-scoring the same stored responses with a more robust extractor (last `\boxed{}`, then `####`, then "answer is", then the last number with thousands separators handled) gives bf16 43.0%, AWQ 50.2%, GPTQ 45.0%, and:
+The first sweeps used `max_new_tokens=256` (the manifest said 2048; the script did not read it). Qwen2.5-3B-Instruct usually needs more than 256 tokens for chain-of-thought, so most responses were cut off: only 16.3% / 8.0% / 8.6% (bf16 / AWQ / GPTQ) contained a `\boxed{}` answer, and the "accuracy" was 33.0% / 43.1% / 37.3%, with AWQ apparently +10.1 points and 77 right-to-wrong flips. That was a measurement of "finished within 256 tokens", mostly verbosity, and its headline ("accuracy rose while answers broke") reversed once the cap was fixed. `flipgate check` now returns INVALID when more than 10% of responses were cut off in either run or the truncation rates differ by more than 5 points; the old runs are kept in the dataset with their finish information missing, so this can be re-checked. `scripts/run_gsm8k_v1_cap256.py` is the old runner.
 
-| Comparison (robust extractor) | Right→Wrong | Wrong→Right | Net | McNemar p |
-|---|---|---|---|---|
-| bf16 vs AWQ | 69 | 141 | +7.2 pts | 7.6e-7 |
-| bf16 vs GPTQ-Int4 | 78 | 98 | +2.0 pts | 0.15 |
+### Harness health: `flipgate check` refuses truncated comparisons
 
-The AWQ result survives; the GPTQ GSM8K result does not. A re-run with a 1,024-token cap is the right fix and is planned. The FedProc registry check (short outputs) and BFCL (short function calls) are not affected by this cap.
-
-### Harness health: `flipgate check` now refuses truncated comparisons
-
-The GSM8K caveat above is the kind of bug a release gate should catch, so it now does. Each stored item can carry `metadata.finish_reason` (`stop` or `length`) and `n_new_tokens`; `flipgate check` computes the share of responses that hit the generation cap in both runs and:
+Each stored item can carry `metadata.finish_reason` (`stop` or `length`) and `n_new_tokens`; `flipgate check` computes the share of responses that hit the generation cap in both runs and:
 
 - exits with **INVALID** (code 2) if more than 10% of responses in either run were cut off (`--max-truncation`), or if the two runs' truncation rates differ by more than 5 points (a more verbose candidate would look worse for reasons unrelated to quality). `--allow-truncation` reports anyway.
 - warns, when no finish reason was recorded, that truncation cannot be measured and (for GSM8K) how many responses contain no final-answer marker. On the original bf16 and AWQ runs this reads 84% and 92%.
 
-`scripts/run_gsm8k.py` now takes the cap from `configs/manifest.yaml` (manifest v1.1.0, `max_tokens: 1024`), batches with left padding (`--determinism-check N` compares batch size 1 against `--batch-size`), records finish reasons, and stores both the v2 score and the original v1 score. The first sweeps' runner is kept as `scripts/run_gsm8k_v1_cap256.py`. `GSM8KScorer` (v2) handles `\boxed{}` answers and thousands separators; `GSM8KScorerV1` reproduces the original numbers.
+`scripts/run_gsm8k.py` takes the cap from `configs/manifest.yaml` (manifest v1.1.0, `max_tokens: 1024`), batches with left padding (`--determinism-check N` compares batch size 1 against `--batch-size`), records finish reasons, and stores both the v2 score and the original v1 score.
 
-### Engine vs Quantization Control (llama.cpp, 200 items)
+### Engine vs quantisation control (llama.cpp): withdrawn
 
-| Model | Accuracy | Δ vs bf16 |
-|-------|----------|-----------|
-| f16 (llama.cpp) | 31.0% (62/200) | −2.0 pts |
-| q4_K_M (llama.cpp) | 36.5% (73/200) | +3.5 pts |
-
-| Comparison | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
-|------------|-------------|-------------|----------|--------|-----------|
-| bf16 vs f16 (llama.cpp) | 24 | 18 | 12.0% | [8.0%, 16.5%] | 0.4404 |
-| bf16 vs q4_K_M (llama.cpp) | 21 | 26 | 10.5% | [6.5%, 15.0%] | 0.5596 |
-
-### Engine vs Quantization Control (llama.cpp f16 row, 200 items)
-
-| Comparison | Isolates | Right→Wrong | Wrong→Right | R→W rate | 95% CI | McNemar p |
-|------------|----------|-------------|-------------|----------|--------|-----------|
-| bf16 (HF) vs f16 (llama.cpp) | engine only | 24 | 18 | 12.0% | [8.0%, 16.5%] | 0.440 |
-| f16 vs q4_K_M (same engine) | quantization only | 14 | 25 | 7.0% | [3.5%, 10.5%] | 0.109 |
-| bf16 (HF) vs q4_K_M (GGUF) | confounded total | 21 | 26 | 10.5% | [6.5%, 15.0%] | 0.560 |
+An earlier version reported that swapping the inference engine (HF generate vs llama.cpp f16, same weights) flipped more answers (12.0% R→W) than 4-bit quantisation did (7.0%). Those rows are withdrawn: they were generated with a 256-token cap, compared against the truncated bf16 baseline, and the llama.cpp prompt used a different system message ("You are a helpful assistant.") than the HF chat template ("You are Qwen, created by Alibaba Cloud. ..."), so engine and prompt were confounded. A re-run needs a GPU build of llama.cpp (the installed binding is CPU-only; an estimated 13 hours for 200 items here); the planned replacement is an HF-vs-vLLM comparison of the same bf16 weights.
 
 ### IFEval (541 prompts, rule-checked, independent reimplementation of the 25 published rules)
 
@@ -199,7 +172,7 @@ The GSM8K caveat above is the kind of bug a release gate should catch, so it now
 
 ## Gate Demo: Catching a Broken Candidate
 
-A serving config change truncated generation to 32 tokens, cutting off chain-of-thought reasoning (note the baseline GSM8K runs above used a 256-token cap, which is the same failure in milder form):
+A serving config change truncated generation to 32 tokens, cutting off chain-of-thought reasoning (the first GSM8K sweeps had the same failure in milder form: a 256-token cap that truncated most answers, which the gate now refuses as INVALID):
 
 ```
 $ flipgate check --baseline <bf16-run> --candidate <truncated-run> --dataset gsm8k
@@ -219,6 +192,6 @@ The gate fails the candidate and writes a Markdown report listing all 10 flipped
 
 All evaluation results are published: https://huggingface.co/datasets/raihan-js/flipgate-results
 
-- 42 evaluation runs (GSM8K, IFEval, FedProc registry check, BFCL; including the three 1,000-item GSM8K runs)
-- 8,168 item-level records
-- Per-item prompts, responses, and scores (so the harness caveat above can be re-checked from the published data)
+- 46 evaluation runs (GSM8K, IFEval, FedProc registry check, BFCL), 11,368 item-level records, as two flat tables (`items`, `runs`)
+- Per-item prompts, responses, scores, and (for the corrected GSM8K runs) finish reasons and token counts
+- A `status` column flags the superseded 256-token GSM8K runs and the withdrawn llama.cpp rows, so the harness caveat can be re-checked from the published data

@@ -1,167 +1,100 @@
 #!/usr/bin/env python3
-"""Export FlipGate results to HuggingFace dataset."""
+"""Export every FlipGate run to flat Parquet tables for the Hugging Face dataset (rewritten 2026-10-05).
 
+  items.parquet : one row per (run, item): prompt, response, score, finish_reason, n_new_tokens, score_v1
+  runs.parquet  : one row per run: model, engine, dataset, batch size, accuracy, cap, truncation rate, status
+
+  python scripts/publish_hf.py --out <dir>           write the tables
+  python scripts/publish_hf.py --out <dir> --upload  also upload them (token from ~/.cache/huggingface/token)
+"""
+import argparse
+import ast
 import json
 from pathlib import Path
-from datasets import Dataset, DatasetDict
-
-def export_results():
-    """Export all results to HuggingFace dataset format."""
-    results_dir = Path("data/results")
-    
-    if not results_dir.exists():
-        print("No results directory found")
-        return None
-    
-    # Collect all run metadata and results
-    all_runs = []
-    
-    for run_dir in results_dir.iterdir():
-        if not run_dir.is_dir():
-            continue
-        
-        metadata_file = run_dir / "metadata.json"
-        if not metadata_file.exists():
-            continue
-        
-        with open(metadata_file) as f:
-            metadata = json.load(f)
-        
-        # Load all JSONL files in this run
-        results = {}
-        for jsonl_file in run_dir.glob("*.jsonl"):
-            dataset_name = jsonl_file.stem
-            items = []
-            with open(jsonl_file) as f:
-                for line in f:
-                    if line.strip():
-                        items.append(json.loads(line))
-            results[dataset_name] = items
-        
-        run_data = {
-            "run_id": run_dir.name,
-            "metadata": metadata,
-            "results": results
-        }
-        all_runs.append(run_data)
-    
-    print(f"Found {len(all_runs)} runs")
-    
-    # Create dataset
-    dataset = Dataset.from_list(all_runs)
-    dataset_dict = DatasetDict({"train": dataset})
-    
-    return dataset_dict
 
 
-def create_dataset_card():
-    """Create a dataset card (README.md) for the dataset."""
-    card = """---
-license: mit
-task_categories:
-  - text-generation
-tags:
-  - llm-evaluation
-  - quantization
-  - model-comparison
-  - flipgate
-pretty_name: FlipGate Results
-size_categories:
-  - n<1K
----
+def parse_meta(v):
+    if isinstance(v, dict):
+        return v
+    if not v:
+        return {}
+    try:
+        return json.loads(v)
+    except Exception:
+        try:
+            return ast.literal_eval(v)
+        except Exception:
+            return {}
 
-# FlipGate Results
 
-Per-item evaluation results from FlipGate, a release gate for quantised and re-served LLMs.
-
-## Dataset Description
-
-This dataset contains per-item evaluation results comparing different quantization methods (bf16, AWQ, GPTQ-Int4) on Qwen2.5-3B-Instruct.
-
-Each run includes:
-- **metadata.json**: Model config, engine version, dataset, batch size, accuracy
-- **{dataset}.jsonl**: Per-item results with prompts, responses, and scores
-
-## Key Findings
-
-- **Noise floor**: HF generate is deterministic at batch_size=1 and 8 (0 flips)
-- **Quantization sweep**: No statistically significant regressions detected with McNemar's test
-- **bf16 baseline**: 30% accuracy on 30-item GSM8K sample
-- **AWQ**: 27% accuracy, 3 right-to-wrong flips
-- **GPTQ-Int4**: 33% accuracy, 0 right-to-wrong flips
-
-## Usage
-
-```python
-from datasets import load_dataset
-
-dataset = load_dataset("raihan-js/flipgate-results")
-run = dataset["train"][0]
-
-print(run["metadata"])  # Model config, accuracy, etc.
-print(run["results"]["gsm8k"])  # Per-item results
-```
-
-## Methodology
-
-- **Model**: Qwen2.5-3B-Instruct (bf16, AWQ, GPTQ-Int4)
-- **Engine**: HuggingFace Transformers generate()
-- **Sampling**: temperature=0.0 (greedy decoding)
-- **Scorer**: GSM8K exact numeric match
-- **Statistics**: McNemar's test for paired comparisons
-
-## Limitations
-
-- Small sample size (30 items) limits statistical power
-- Only HF generate engine tested (vLLM installation timed out)
-- Noise floor measurement incomplete (needs vLLM batched kernels)
-
-## Citation
-
-```bibtex
-@software{flipgate2026,
-  author = {Raihan Sikder},
-  title = {FlipGate: Release gate for quantised LLMs},
-  year = {2026},
-  url = {https://github.com/raihan-js/flipgate}
-}
-```
-"""
-    return card
+def status(m):
+    ds, eng = m.get("dataset"), m.get("engine")
+    if ds != "gsm8k":
+        return "current"
+    if "max_new_tokens" in m:
+        return "current: 1,024-token cap, finish reasons recorded"
+    if eng == "llama_cpp":
+        return "withdrawn: 256-token cap and a different prompt from the HF runs"
+    if m.get("num_items") == 1000:
+        return "superseded: 256-token cap, most answers truncated"
+    return "early small run: generation cap not recorded"
 
 
 def main():
-    """Main export function."""
-    print("Exporting FlipGate results to HuggingFace...")
-    
-    # Export results
-    dataset_dict = export_results()
-    if dataset_dict is None:
-        return
-    
-    # Create dataset card
-    card_content = create_dataset_card()
-    
-    # Push to HuggingFace
-    repo_id = "raihan-js/flipgate-results"
-    print(f"\nPushing to {repo_id}...")
-    
-    dataset_dict.push_to_hub(
-        repo_id,
-        private=False
-    )
-    
-    # Add README separately
-    from huggingface_hub import HfApi
-    api = HfApi()
-    api.upload_file(
-        path_or_fileobj=card_content.encode(),
-        path_in_repo="README.md",
-        repo_id=repo_id,
-        repo_type="dataset"
-    )
-    
-    print(f"\n✓ Published to https://huggingface.co/datasets/{repo_id}")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--results", default="data/results")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--upload", action="store_true")
+    args = ap.parse_args()
+    import pandas as pd
+
+    runs, items = [], []
+    for d in sorted(Path(args.results).iterdir()):
+        mf = d / "metadata.json"
+        if not d.is_dir() or not mf.exists():
+            continue
+        m = json.load(open(mf))
+        n = 0
+        for jf in sorted(d.glob("*.jsonl")):
+            for line in open(jf):
+                if not line.strip():
+                    continue
+                r = json.loads(line)
+                if "item_id" not in r:
+                    continue
+                meta = parse_meta(r.get("metadata"))
+                try:
+                    score = float(r.get("score"))
+                except (TypeError, ValueError):
+                    score = None
+                items.append({"run_id": d.name, "model": m.get("model"), "engine": m.get("engine"),
+                              "dataset": m.get("dataset"), "batch_size": m.get("batch_size"),
+                              "item_id": r["item_id"], "prompt": r.get("prompt"), "response": r.get("response"),
+                              "score": score, "finish_reason": meta.get("finish_reason"),
+                              "n_new_tokens": meta.get("n_new_tokens"), "score_v1": meta.get("score_v1"),
+                              "timestamp": r.get("timestamp")})
+                n += 1
+        runs.append({"run_id": d.name, "model": m.get("model"), "engine": m.get("engine"),
+                     "engine_version": m.get("engine_version"), "dataset": m.get("dataset"),
+                     "batch_size": m.get("batch_size"), "num_items": n, "accuracy": m.get("accuracy"),
+                     "accuracy_v1_scorer": m.get("accuracy_v1_scorer"), "max_new_tokens": m.get("max_new_tokens"),
+                     "truncated_rate": m.get("truncated_rate"), "manifest_version": m.get("manifest_sha"),
+                     "created": m.get("created"), "status": status(m)})
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(items).to_parquet(out / "items.parquet", index=False)
+    pd.DataFrame(runs).to_parquet(out / "runs.parquet", index=False)
+    print(f"{len(runs)} runs, {len(items)} items -> {out}")
+    if args.upload:
+        from huggingface_hub import HfApi, CommitOperationAdd, CommitOperationDelete
+        card = (out / "README.md")
+        ops = [CommitOperationAdd("items.parquet", str(out / "items.parquet")),
+               CommitOperationAdd("runs.parquet", str(out / "runs.parquet")),
+               CommitOperationAdd("README.md", str(card)),
+               CommitOperationDelete("data/train-00000-of-00001.parquet")]
+        HfApi().create_commit("raihan-js/flipgate-results", ops, repo_type="dataset",
+                              commit_message="Re-export as flat tables (items, runs); add the 1,024-token GSM8K re-run and the batch-size noise floor; flag superseded runs")
+        print("uploaded")
 
 
 if __name__ == "__main__":
