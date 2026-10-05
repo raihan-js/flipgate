@@ -123,11 +123,24 @@ Qwen2.5-3B-Instruct on four task families. All sampling is greedy; the GSM8K swe
 
 Each quantised model broke 91 answers that bf16 got right, 11% of the 797, while fixing 54-56 that bf16 got wrong. Every response ended naturally (3,000 of 3,000, mean 274-297 tokens), so none of this is truncation.
 
-### The noise floor: 0 for reruns, about 3% when the batch size changes
+### The noise floor: near 0 for reruns, about 3% when the batch size changes
 
-Repeating a run at a fixed batch size gives identical output on HF generate (0 flips, 1,024-token cap) and, in my first harness, on eager vLLM (0 flips at batch 32 and 8, but that was at the 256-token cap; a re-run at 1,024 tokens is queued). Changing the batch size does not. bf16 at batch size 1 vs batch size 8, same weights and prompts, first 200 items: **124 of 200 responses differed in text, but only 13 changed correctness** (6 right→wrong, 7 wrong→right). That is a right→wrong floor of **3.0% [1.0%, 5.5%]**, McNemar p = 1.0. The quantised models' 9.1% is three times that, and the floor's upper bound (5.5%) sits below the quantised models' lower bound (7.3%). A 24-prompt text check shows the same sensitivity for all three models: 14/24 (bf16), 5/24 (AWQ), 6/24 (GPTQ) responses differ between batch size 1 and 8. So baseline and candidate must use the same batch size, and the sweeps here use batch size 1.
+Repeating a run at a fixed batch size gives identical output on HF generate (0 flips, 1,024-token cap) but not exactly on eager vLLM: in my first harness it gave 0 flips (256-token cap), and at the 1,024-token cap two identical batch-32 runs differed on 4 of 1,000 items (1 right→wrong). Changing the batch size changes much more. bf16 at batch size 1 vs batch size 8, same weights and prompts, first 200 items: **124 of 200 responses differed in text, but only 13 changed correctness** (6 right→wrong, 7 wrong→right). That is a right→wrong floor of **3.0% [1.0%, 5.5%]**, McNemar p = 1.0. The quantised models' 9.1% is three times that, and the floor's upper bound (5.5%) sits below the quantised models' lower bound (7.3%). A 24-prompt text check shows the same sensitivity for all three models: 14/24 (bf16), 5/24 (AWQ), 6/24 (GPTQ) responses differ between batch size 1 and 8. So baseline and candidate must use the same batch size, and the sweeps here use batch size 1.
 
 > **A note on the floor:** the original design expressed flips as a *multiple* of the noise floor. With a floor of exactly 0% that ratio is undefined, so the gate reports the flip rate with its 95% CI and compares it with the measured floor plus a margin.
+
+### Engine control: HF generate vs vLLM, same bf16 weights
+
+If you move a model from one serving engine to another, how many answers change? Same Qwen2.5-3B-Instruct bf16 weights, prompts, chat template, 1,024-token cap and scorer; HF generate at batch size 1 against vLLM 0.30.0 (eager, FlashAttention) at batch size 32 and 8, GSM8K-1000:
+
+| Comparison (baseline → candidate) | Accuracy | Right→wrong | Wrong→right | R→W rate [95% CI] | McNemar p |
+|---|---|---|---|---|---|
+| HF batch 1 → vLLM batch 32 | 79.7% → 81.4% | 43 | 60 | 4.3% [3.1%, 5.8%] | 0.115 |
+| HF batch 1 → vLLM batch 8 | 79.7% → 81.9% | 36 | 58 | 3.6% [2.5%, 4.8%] | 0.030 |
+| vLLM batch 32, repeat run | 81.4% → 81.6% | 1 | 3 | 0.1% [0.0%, 0.3%] | 0.62 |
+| vLLM batch 32 → batch 8 | 81.4% → 81.9% | 19 | 24 | 1.9% [1.1%, 2.8%] | 0.54 |
+
+**Swapping the engine alone broke 3.6–4.3% of previously correct answers** and fixed 5.8–6.0%, so about 10% of answers changed correctness while accuracy moved by about 2 points. That is less than quantisation does on the same engine (9.1% right→wrong for AWQ and GPTQ; the quantised lower bound, 7.3%, is above the engine upper bound, 5.8%). It is the opposite of the llama.cpp numbers I withdrew below. Caveats: the two engine rows share one HF baseline (p = 0.115 for batch 32, p = 0.030 for batch 8, both reported), the comparison also changes the batch size (worth 2–3% on its own), and it is bf16 only, one model, one GPU, eager mode.
 
 ### The answer extractor decides the sign of the accuracy change
 
@@ -189,7 +202,7 @@ The first version of this article was titled "AWQ raised GSM8K accuracy by 10 po
 
 Two fixes followed. First, I re-ran everything with a 1,024-token cap (the table at the top of this section). The headline reversed: AWQ went from +10.1 points to −3.5, and GPTQ from +4.3 to −3.7. Second, FlipGate now refuses to compare runs like the old ones: each stored item carries a `finish_reason`, and `flipgate check` exits with **INVALID** if more than 10% of responses hit the cap in either run, or if the two runs' truncation rates differ by more than 5 points. The gate is supposed to catch exactly this kind of silent change, so it should not be fooled by one in its own harness.
 
-I also withdrew an engine-versus-quantisation control (llama.cpp f16 against HF generate) that I had reported: it inherited the truncated baseline, and its llama.cpp prompt used a different system message from the HF chat template, so engine and prompt were confounded. Re-running it needs a GPU build of llama.cpp; the planned replacement is an HF-versus-vLLM comparison of the same bf16 weights.
+I also withdrew an engine-versus-quantisation control (llama.cpp f16 against HF generate) that I had reported: it inherited the truncated baseline, and its llama.cpp prompt used a different system message from the HF chat template, so engine and prompt were confounded. The replacement is the HF-versus-vLLM control above.
 
 ---
 
@@ -230,10 +243,9 @@ The problem is real (accuracy hides flips), the method is straightforward (paire
 
 ## What's Next
 
-1. **HF-versus-vLLM engine control** on the same bf16 weights, replacing the withdrawn llama.cpp rows.
-2. **Larger models (7B, 13B)** on rented GPUs, and a Marlin build so quantised models can run on vLLM.
-3. **More task families**, for example code generation with execution-based scoring, and a Japanese task.
-4. **Noise floor under non-eager vLLM** and other stacks.
+1. **Larger models (7B, 13B)** on rented GPUs, and a Marlin build so quantised models can run on vLLM (which would allow an engine-by-quantisation control).
+2. **More task families**, for example code generation with execution-based scoring, and a Japanese task.
+3. **Noise floor under non-eager vLLM** and other stacks.
 
 ---
 
@@ -261,8 +273,8 @@ flipgate check \
 
 - **One model**: Qwen2.5-3B-Instruct only. Results may not generalise to other families or sizes.
 - **Answer extractors matter**: the GSM8K accuracy change flips sign between a strict and a robust extractor; the robust one is used, and the format drift is itself a finding.
-- **Quantised runs on HF generate only**: Marlin kernels did not compile here, so quantised models were not served through vLLM, and there is currently no engine-versus-quantisation control.
-- **Noise floor**: the batch-size floor (3.0% [1.0%, 5.5%]) is from 200 GSM8K items on one stack; the floor under other stacks, kernels and multi-GPU setups can differ.
+- **Quantised runs on HF generate only**: Marlin kernels did not compile here, so quantised models were not served through vLLM. The engine control is bf16 only, so there is no engine-by-quantisation interaction.
+- **Noise floor**: the batch-size floor (3.0% [1.0%, 5.5%]) is from 200 GSM8K items on HF generate, and the vLLM figures are from 1,000 items in eager mode, all on one GPU; the floor under other stacks, kernels and multi-GPU setups can differ.
 - **Cap and batch size**: the GSM8K results are for a 1,024-token cap at batch size 1. The IFEval (1,024-token cap), FedProc (128) and BFCL (256) runs predate the finish-reason field, so truncation there was not measured; their outputs are short, but that is an assumption.
 
 ---

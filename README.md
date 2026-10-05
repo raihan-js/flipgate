@@ -8,7 +8,7 @@ A CLI and GitHub Action release gate for quantised and re-served LLMs. Counts pe
 
 Teams usually ship a quantised model once aggregate accuracy looks unchanged. But [Dutta et al. 2024](https://arxiv.org/abs/2407.09141) showed that aggregate accuracy can hide many per-question flips. FlipGate adds:
 
-1. **Noise floor measurement** — bf16-vs-bf16 flips under greedy decoding (temp 0): 0 for repeat runs at a fixed batch size, and about 3% right→wrong when only the batch size changes (GSM8K, Qwen2.5-3B, HF generate)
+1. **Noise floor measurement** — bf16-vs-bf16 flips under greedy decoding (temp 0): 0 for repeat runs on HF generate at a fixed batch size (on vLLM, 4 of 1,000 items changed between two repeats), and about 3% right→wrong when only the batch size changes (GSM8K, Qwen2.5-3B, 1,024-token cap)
 2. **Statistical rigor** — A candidate only fails when right-to-wrong flips are significantly above the measured floor (p<0.05)
 3. **Hallucination detection** — FedProc FAR/DFARS registry check (no LLM judge)
 
@@ -117,7 +117,7 @@ Both quantised models lose accuracy and break 91 previously correct answers each
 
 **The answer extractor decides the sign of the accuracy change.** The quantised models drift away from the `\boxed{}` final-answer format the bf16 model prefers (responses containing `\boxed`: bf16 57.7%, AWQ 28.3%, GPTQ 32.8%). The original strict extractor scores the same stored responses as bf16 60.0%, AWQ 63.2%, GPTQ 61.0%, i.e. AWQ *better* by 3.2 points (R→W 109, W→R 141, McNemar p = 0.050) and GPTQ unchanged (125 vs 135, p = 0.58). The robust extractor (last `\boxed{}`, then `####`, then "answer is", then the last number, thousands separators handled) is the one used above; report which extractor produced a number, and read the strict-extractor change as a formatting effect.
 
-**Noise floor, measured on the corrected harness.** Repeating a run at a fixed batch size gives identical output (0 flips on HF generate at the 1,024-token cap; eager vLLM gave 0 flips at batch 32 and 8 in the first harness, which used a 256-token cap, so a 1,024-token re-run is queued). Changing only the batch size is different: bf16 at batch size 1 vs batch size 8 (same weights, same prompts, first 200 items, 1,024-token cap) produced different text for 124 of 200 responses, yet changed correctness for only 13 (6 right→wrong, 7 wrong→right): a right→wrong floor of **3.0% [1.0%, 5.5%]**, McNemar p = 1.0 (`Qwen2.5-3B-bf16_gsm8k_v2_bs8`). A 24-prompt check shows the text-level sensitivity for all three models: 14/24 (bf16), 5/24 (AWQ) and 6/24 (GPTQ) responses differ between batch size 1 and 8. The quantised models' 9.1% right→wrong rate is three times that floor, and the interval's upper end for the floor (5.5%) is still below the lower end of theirs (7.3%). The gate's comparisons are only clean when baseline and candidate use the same batch size, so the sweeps above use batch size 1.
+**Noise floor, measured on the corrected harness.** Repeating a run at a fixed batch size gives identical output on HF generate (0 flips at the 1,024-token cap; eager vLLM gave 0 flips at batch 32 and 8 in the first harness, which used a 256-token cap, but at the 1,024-token cap a repeat run at batch 32 changed 4 of 1,000 items, see the engine control below). Changing only the batch size is different: bf16 at batch size 1 vs batch size 8 (same weights, same prompts, first 200 items, 1,024-token cap) produced different text for 124 of 200 responses, yet changed correctness for only 13 (6 right→wrong, 7 wrong→right): a right→wrong floor of **3.0% [1.0%, 5.5%]**, McNemar p = 1.0 (`Qwen2.5-3B-bf16_gsm8k_v2_bs8`). A 24-prompt check shows the text-level sensitivity for all three models: 14/24 (bf16), 5/24 (AWQ) and 6/24 (GPTQ) responses differ between batch size 1 and 8. The quantised models' 9.1% right→wrong rate is three times that floor, and the interval's upper end for the floor (5.5%) is still below the lower end of theirs (7.3%). The gate's comparisons are only clean when baseline and candidate use the same batch size, so the sweeps above use batch size 1.
 
 ### What the first GSM8K run said, and why it is withdrawn
 
@@ -132,9 +132,26 @@ Each stored item can carry `metadata.finish_reason` (`stop` or `length`) and `n_
 
 `scripts/run_gsm8k.py` takes the cap from `configs/manifest.yaml` (manifest v1.1.0, `max_tokens: 1024`), batches with left padding (`--determinism-check N` compares batch size 1 against `--batch-size`), records finish reasons, and stores both the v2 score and the original v1 score.
 
-### Engine vs quantisation control (llama.cpp): withdrawn
+### Engine control: HF generate vs vLLM (bf16)
 
-An earlier version reported that swapping the inference engine (HF generate vs llama.cpp f16, same weights) flipped more answers (12.0% R→W) than 4-bit quantisation did (7.0%). Those rows are withdrawn: they were generated with a 256-token cap, compared against the truncated bf16 baseline, and the llama.cpp prompt used a different system message ("You are a helpful assistant.") than the HF chat template ("You are Qwen, created by Alibaba Cloud. ..."), so engine and prompt were confounded. A re-run needs a GPU build of llama.cpp (the installed binding is CPU-only; an estimated 13 hours for 200 items here); the planned replacement is an HF-vs-vLLM comparison of the same bf16 weights.
+Same Qwen2.5-3B-Instruct bf16 weights, prompts, chat template, 1,024-token cap, greedy decoding and scorer v2, on GSM8K-1000 (`scripts/run_gsm8k_vllm.py`; vLLM 0.30.0, eager mode, FlashAttention, RTX 3060). HF generate ran at batch size 1. Every pass is a run in the dataset (`Qwen2.5-3B-bf16-vllm_gsm8k_v2_*`, truncation 0.0–0.1%).
+
+| Comparison (baseline → candidate) | Accuracy | Right→wrong | Wrong→right | R→W rate [95% CI] | McNemar p |
+|---|---|---|---|---|---|
+| HF batch 1 → vLLM batch 32 | 79.7% → 81.4% | 43 | 60 | 4.3% [3.1%, 5.8%] | 0.115 |
+| HF batch 1 → vLLM batch 8 | 79.7% → 81.9% | 36 | 58 | 3.6% [2.5%, 4.8%] | 0.030 |
+| vLLM batch 32, repeat run | 81.4% → 81.6% | 1 | 3 | 0.1% [0.0%, 0.3%] | 0.62 |
+| vLLM batch 32 → batch 8 | 81.4% → 81.9% | 19 | 24 | 1.9% [1.1%, 2.8%] | 0.54 |
+
+- **An engine swap alone broke 3.6–4.3% of previously correct answers** (and fixed 5.8–6.0%): 94 to 103 of 1,000 answers changed correctness while accuracy moved by about 2 points. That is less than 4-bit quantisation does on the same engine (AWQ and GPTQ: 9.1% right→wrong; the quantised lower bound, 7.3%, is above the engine upper bound, 5.8%), the opposite of the withdrawn llama.cpp rows below.
+- The two engine rows share one HF baseline, so they are not independent evidence. One has p = 0.115 and the other p = 0.030 (vLLM scores higher); both are reported.
+- The comparison also changes the batch size (1 vs 8 or 32), and batch size alone is worth about 2–3% right→wrong, so this is "engine plus batch size", not a pure engine effect.
+- vLLM is not exactly repeatable at this cap: 4 of 1,000 items changed between two identical batch-32 runs (the earlier 0-flip result was at the 256-token cap).
+- bf16 only: no quantised model was served through vLLM (the Marlin kernels did not compile here), so this says nothing about an engine-by-quantisation interaction. One model, one GPU, eager mode.
+
+### Withdrawn: engine vs quantisation control with llama.cpp
+
+An earlier version reported that swapping the inference engine (HF generate vs llama.cpp f16, same weights) flipped more answers (12.0% R→W) than 4-bit quantisation did (7.0%). Those rows are withdrawn: they were generated with a 256-token cap, compared against the truncated bf16 baseline, and the llama.cpp prompt used a different system message ("You are a helpful assistant.") than the HF chat template ("You are Qwen, created by Alibaba Cloud. ..."), so engine and prompt were confounded. The HF-vs-vLLM control above replaces them.
 
 ### IFEval (541 prompts, rule-checked, independent reimplementation of the 25 published rules)
 
@@ -192,6 +209,6 @@ The gate fails the candidate and writes a Markdown report listing all 10 flipped
 
 All evaluation results are published: https://huggingface.co/datasets/raihan-js/flipgate-results
 
-- 46 evaluation runs (GSM8K, IFEval, FedProc registry check, BFCL), 11,368 item-level records, as two flat tables (`items`, `runs`)
+- 49 evaluation runs (GSM8K, IFEval, FedProc registry check, BFCL, and the vLLM engine control), 14,368 item-level records, as two flat tables (`items`, `runs`)
 - Per-item prompts, responses, scores, and (for the corrected GSM8K runs) finish reasons and token counts
 - A `status` column flags the superseded 256-token GSM8K runs and the withdrawn llama.cpp rows, so the harness caveat can be re-checked from the published data
