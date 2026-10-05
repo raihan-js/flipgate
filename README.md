@@ -2,6 +2,8 @@
 
 ![FlipGate GSM8K flip counts](images/flipgate-results.png)
 
+Write-up: [AWQ Looked 10 Points Better on GSM8K Until I Stopped Truncating the Answers](https://dev.to/raihan-js/awq-looked-10-points-better-on-gsm8k-until-i-stopped-truncating-the-answers-18a7)
+
 A CLI and GitHub Action release gate for quantised and re-served LLMs. Counts per-item right-to-wrong answer flips against a measured bf16 noise floor, using paired statistics (McNemar, paired bootstrap) instead of aggregate accuracy.
 
 ## Why FlipGate?
