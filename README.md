@@ -11,7 +11,7 @@ A CLI and GitHub Action release gate for quantised and re-served LLMs. Counts pe
 Teams usually ship a quantised model once aggregate accuracy looks unchanged. But [Dutta et al. 2024](https://arxiv.org/abs/2407.09141) showed that aggregate accuracy can hide many per-question flips. FlipGate adds:
 
 1. **Noise floor measurement** — bf16-vs-bf16 flips under greedy decoding (temp 0): 0 for repeat runs on HF generate at a fixed batch size (on vLLM, 4 of 1,000 items changed between two repeats), and about 3% right→wrong when only the batch size changes (GSM8K, Qwen2.5-3B, 1,024-token cap)
-2. **Statistical rigor** — A candidate only fails when right-to-wrong flips are significantly above the measured floor (p<0.05)
+2. **Statistical rigor** — A candidate fails when McNemar finds significantly more right-to-wrong than wrong-to-right flips (p<0.05), or, if a noise floor is supplied with `--noise-floor`, when its right-to-wrong rate exceeds the floor times a margin (default 2x). Flip churn that nets out is invisible to the first test, and the floor is only as good as the task family it was measured on (GSM8K here)
 3. **Hallucination detection** — FedProc FAR/DFARS registry check (no LLM judge)
 
 ## Installation

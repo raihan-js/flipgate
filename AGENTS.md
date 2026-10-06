@@ -8,7 +8,7 @@ A CLI + GitHub Action release gate for quantised/re-served LLMs. Counts per-item
 
 ## Why this project
 
-Teams ship quantised models when aggregate accuracy looks unchanged. Dutta et al. 2024 showed aggregate accuracy hides per-question flips. FlipGate adds: (1) a measured noise floor first — under greedy decoding, seeds change nothing; batch size and kernel choice do; (2) a candidate fails only when right-to-wrong flips are significantly above the floor (p<0.05); (3) a hallucination column checking clause numbers against the 1,032-clause FAR/DFARS registry, no LLM judge.
+Teams ship quantised models when aggregate accuracy looks unchanged. Dutta et al. 2024 showed aggregate accuracy hides per-question flips. FlipGate adds: (1) a measured noise floor first — under greedy decoding, seeds change nothing; batch size and kernel choice do; (2) a candidate fails when right-to-wrong flips significantly outnumber wrong-to-right flips (McNemar, p<0.05) or, if `--noise-floor` is supplied, when its right-to-wrong rate exceeds floor x margin (default 2x); churn that nets out is invisible to McNemar (IFEval AWQ: 56 broke, 41 fixed, p=0.155 passes with no floor), and the only measured floor is GSM8K's; (3) a hallucination column checking clause numbers against the 1,032-clause FAR/DFARS registry, no LLM judge.
 
 ## Key results (re-run 2026-10-05; the first GSM8K sweeps used a 256-token cap and are superseded)
 

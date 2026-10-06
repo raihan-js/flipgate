@@ -51,7 +51,12 @@ We use **McNemar's test** to determine if the right→wrong flips are statistica
 
 ### 4. Gate Decision
 
-If the candidate's flip rate exceeds the noise floor by a configurable margin (and the difference is statistically significant at p < 0.05), the gate **fails**. Otherwise, it **passes**.
+The gate has two separate tripwires, and it **fails** if either fires:
+
+1. **Asymmetry:** McNemar's test finds significantly more right→wrong than wrong→right flips (p < 0.05).
+2. **Floor:** a noise floor was supplied (`--noise-floor`) and the right→wrong rate exceeds that floor times a margin (default 2×).
+
+Otherwise it **passes**. Two caveats, both raised by a reader of this post. McNemar compares the two flip directions, so churn that nets out cannot trip tripwire 1 (see the IFEval section). Tripwire 2 is skipped when no floor is given (the default is 0), it is a point threshold on the floor estimate rather than a one-sided test against an interval, and the only floor measured here comes from GSM8K.
 
 ---
 
@@ -162,6 +167,8 @@ The quantised models drift away from the `\boxed{}` final-answer format: 57.7% o
 | bf16 vs GPTQ-Int4 | 45 | 40 | 8.3% | [6.1%, 10.5%] | 0.664 |
 
 The aggregate moves a little and the flips quantify it: 56 and 45 previously passing instructions broke, though neither difference is significant at this sample size.
+
+This is also the case the McNemar tripwire cannot see. For AWQ, 56 instructions broke and 41 were fixed (exact p = 0.155), so with no floor supplied the gate passes it, although the 10.4% right→wrong rate has a lower bound (7.8%) above the top of the GSM8K batch-size floor (5.5%). Supplying that floor (3.0%) would trip the 2× floor threshold (6.0%), but it is a floor from a different task family. I have not measured an IFEval floor, and format-checked instructions may flip more under batch changes than GSM8K answers do, so I cannot say how much of the 10.4% is noise.
 
 ### FedProc: hallucination rises (155 real-FAR records)
 
@@ -274,7 +281,7 @@ flipgate check \
 - **One model**: Qwen2.5-3B-Instruct only. Results may not generalise to other families or sizes.
 - **Answer extractors matter**: the GSM8K accuracy change flips sign between a strict and a robust extractor; the robust one is used, and the format drift is itself a finding.
 - **Quantised runs on HF generate only**: Marlin kernels did not compile here, so quantised models were not served through vLLM. The engine control is bf16 only, so there is no engine-by-quantisation interaction.
-- **Noise floor**: the batch-size floor (3.0% [1.0%, 5.5%]) is from 200 GSM8K items on HF generate, and the vLLM figures are from 1,000 items in eager mode, all on one GPU; the floor under other stacks, kernels and multi-GPU setups can differ.
+- **Noise floor**: the batch-size floor (3.0% [1.0%, 5.5%]) is from 200 GSM8K items on HF generate and has not been measured for IFEval, FedProc or BFCL, and the vLLM figures are from 1,000 items in eager mode, all on one GPU; the floor under other stacks, kernels and multi-GPU setups can differ.
 - **Cap and batch size**: the GSM8K results are for a 1,024-token cap at batch size 1. The IFEval (1,024-token cap), FedProc (128) and BFCL (256) runs predate the finish-reason field, so truncation there was not measured; their outputs are short, but that is an assumption.
 
 ---
